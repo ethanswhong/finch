@@ -1,5 +1,4 @@
 import React from 'react';
-import CharacterFace from './CharacterFace.jsx';
 import CharacterButton from './CharacterButton.jsx';
 import Icon from './Icon.jsx';
 
@@ -8,14 +7,9 @@ export default function RestaurantCard({ restaurant, onOpen, onCharacter, active
   return (
     <article className={`restaurant-card ${compact ? 'restaurant-card-home' : ''}`} id={`restaurant-${restaurant.id}`}>
       <div className="image-wrap restaurant-image-wrap">
-        <button type="button" className="image-main-button" onClick={onOpen} aria-label={`Open ${summary}`}>
+        <button type="button" className="image-main-button" onClick={onOpen} aria-label={`Open ${restaurant.name}`}>
           <img src={restaurant.image} alt="" />
         </button>
-        {active && (
-          <div className="face-overlay">
-            <CharacterFace expression={restaurant.character.expression} talking={talking} label={restaurant.name} />
-          </div>
-        )}
         <CharacterButton active={active} talking={talking} listening={listening} onClick={onCharacter} label={restaurant.name} expression={restaurant.character.expression} />
       </div>
       <div className="restaurant-summary-row">

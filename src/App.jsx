@@ -1,11 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useConversation, useConversationClientTool } from '@elevenlabs/react';
 import { categories, getMenuItem, getRestaurant, homeSections, restaurants } from './data/dummyData.js';
 import RestaurantCard from './components/RestaurantCard.jsx';
 import MenuCard from './components/MenuCard.jsx';
 import CharacterFace from './components/CharacterFace.jsx';
 import Icon from './components/Icon.jsx';
-import { interruptScreenReaderSpeech, setScreenReaderSuppressed } from './utils/accessibility.js';
 
 const AGENT_MODE = import.meta.env.VITE_AGENT_MODE || 'demo';
 const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || '';
@@ -97,12 +96,11 @@ function App() {
   const [demoMuted, setDemoMuted] = useState(false);
   const [menuFilter, setMenuFilter] = useState('featured');
   const [heroHeaderProgress, setHeroHeaderProgress] = useState(0);
-  const [voicePriorityLock, setVoicePriorityLock] = useState(false);
   const heroRef = useRef(null);
   const appShellRef = useRef(null);
-  const hasSeenAgentSpeechRef = useRef(false);
-  const unlockTimerRef = useRef(null);
   const activeCharacterRef = useRef(activeCharacter);
+  const voiceOverProxyRef = useRef(null);
+  const activationGenerationRef = useRef(0);
   activeCharacterRef.current = activeCharacter;
 
   const conversation = useConversation({
@@ -116,27 +114,20 @@ function App() {
       // "quit" means: explicit end-session commands immediately disconnect
       // the ElevenLabs session, even on a tentative user transcript.
       if (source === 'user' && isExplicitEndCommand(text)) {
-        interruptScreenReaderSpeech();
+        activationGenerationRef.current += 1;
         setActiveCharacter(null);
         setAgentStatus('Conversation ended.');
         void conversation.endSession().catch((error) => console.error('Could not end voice session:', error));
       }
     },
     onDisconnect: () => {
-      // Covers manual endSession *and* ElevenLabs' built-in End Call system tool.
-      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
-      hasSeenAgentSpeechRef.current = false;
-      setVoicePriorityLock(false);
-      if (appShellRef.current) setScreenReaderSuppressed(appShellRef.current, false);
+      activationGenerationRef.current += 1;
       setActiveCharacter(null);
       setAgentStatus('Conversation ended.');
     },
     onError: (error) => {
       console.error(error);
-      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
-      hasSeenAgentSpeechRef.current = false;
-      setVoicePriorityLock(false);
-      if (appShellRef.current) setScreenReaderSuppressed(appShellRef.current, false);
+      activationGenerationRef.current += 1;
       setActiveCharacter(null);
       setAgentStatus('Voice conversation error. Please tap the character button again to retry.');
     }
@@ -147,45 +138,35 @@ function App() {
   const isListening = AGENT_MODE === 'elevenlabs' ? Boolean(conversation.isListening) : false;
   const isMuted = AGENT_MODE === 'elevenlabs' ? Boolean(conversation.isMuted) : demoMuted;
 
-  // Voice-priority mode. Keep the microphone OPEN so the shopper can barge in,
-  // but aggressively suppress VoiceOver while the agent has the floor.
-  //
-  // We lock immediately on activation to cut the button's queued VoiceOver
-  // announcement, keep the app hidden from the accessibility tree while the
-  // agent is speaking, and restore accessibility shortly after speech ends.
-  useEffect(() => {
+  const voiceConversationActive = Boolean(activeCharacter);
+
+  // While a voice conversation is active, keep the visual app fully usable
+  // but remove it from VoiceOver's accessibility tree. VoiceOver gets exactly
+  // one stable, external control instead of wandering through background UI.
+  // Crucially, this lock lasts for the WHOLE conversation, not only while the
+  // agent is speaking, so VoiceOver speech cannot leak into the open mic.
+  useLayoutEffect(() => {
     const shell = appShellRef.current;
     if (!shell) return undefined;
 
-    if (!activeCharacter) {
-      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
-      hasSeenAgentSpeechRef.current = false;
-      setVoicePriorityLock(false);
-      setScreenReaderSuppressed(shell, false);
+    if (!voiceConversationActive) {
+      shell.removeAttribute('aria-hidden');
       return undefined;
     }
 
-    if (isSpeaking) {
-      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
-      hasSeenAgentSpeechRef.current = true;
-      setVoicePriorityLock(true);
-      setScreenReaderSuppressed(shell, true);
-      return undefined;
-    }
+    // Move accessibility focus OUTSIDE the subtree before hiding it. Hiding a
+    // subtree that still owns VoiceOver focus is what caused Safari to jump to
+    // the top and start reading "Skip to content" and other stray elements.
+    try {
+      voiceOverProxyRef.current?.focus({ preventScroll: true });
+    } catch (_) {}
 
-    if (hasSeenAgentSpeechRef.current) {
-      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
-      unlockTimerRef.current = window.setTimeout(() => {
-        setScreenReaderSuppressed(shell, false);
-        setVoicePriorityLock(false);
-        unlockTimerRef.current = null;
-      }, 180);
-    }
+    shell.setAttribute('aria-hidden', 'true');
 
     return () => {
-      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
+      shell.removeAttribute('aria-hidden');
     };
-  }, [activeCharacter, isSpeaking]);
+  }, [voiceConversationActive]);
 
   const cartItems = useMemo(() => Object.entries(cart)
     .map(([itemId, quantity]) => {
@@ -311,8 +292,7 @@ function App() {
 
   async function startElevenLabs(character) {
     if (!AGENT_ID) {
-      setVoicePriorityLock(false);
-      if (appShellRef.current) setScreenReaderSuppressed(appShellRef.current, false);
+      activationGenerationRef.current += 1;
       setActiveCharacter(null);
       setAgentStatus('Live voice is not configured yet. Add the ElevenLabs agent ID to enable continuous conversation.');
       return;
@@ -344,8 +324,7 @@ function App() {
       }
     } catch (error) {
       console.error(error);
-      setVoicePriorityLock(false);
-      if (appShellRef.current) setScreenReaderSuppressed(appShellRef.current, false);
+      activationGenerationRef.current += 1;
       setActiveCharacter(null);
       setAgentStatus('Could not start the live voice agent. Check microphone permission and ElevenLabs setup.');
     }
@@ -377,32 +356,36 @@ function App() {
       return;
     }
 
-    // Silence VoiceOver immediately on the same user gesture, but keep the
-    // microphone open so the shopper can still barge in while the agent speaks.
-    // Do not wait for ElevenLabs to report isSpeaking; that is late enough for
-    // a queued VoiceOver label to leak into the beginning of the conversation.
-    interruptScreenReaderSpeech();
-    hasSeenAgentSpeechRef.current = false;
-    setVoicePriorityLock(true);
-    if (appShellRef.current) setScreenReaderSuppressed(appShellRef.current, true);
+    const generation = ++activationGenerationRef.current;
+    const alreadyConnected = AGENT_MODE === 'elevenlabs' && conversation.status === 'connected';
 
     setActiveCharacter(character);
     const entity = getCharacterEntity(character);
-    setAgentStatus(`Conversation started with ${entity?.name || 'character'}. Tap the character button again to end.`);
-    if (AGENT_MODE === 'elevenlabs') await startElevenLabs(character);
-    else speakDemo(entity?.character?.intro || 'Ready to talk.');
+    setAgentStatus(`Conversation started with ${entity?.name || 'character'}.`);
+
+    if (AGENT_MODE === 'elevenlabs') {
+      // For the first activation only, give VoiceOver time to announce the one
+      // short proxy button before ElevenLabs begins speaking. Once a session is
+      // already connected, agent-to-agent switches stay silent in VoiceOver.
+      if (!alreadyConnected) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1350));
+        if (generation !== activationGenerationRef.current) return;
+      }
+      await startElevenLabs(character);
+    } else {
+      await new Promise((resolve) => window.setTimeout(resolve, 650));
+      if (generation !== activationGenerationRef.current) return;
+      speakDemo(entity?.character?.intro || 'Ready to talk.');
+    }
   }
 
   async function endCharacter() {
+    activationGenerationRef.current += 1;
     if (AGENT_MODE === 'elevenlabs' && conversation.status === 'connected') {
       try { await conversation.endSession(); } catch (error) { console.error(error); }
     }
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
-    hasSeenAgentSpeechRef.current = false;
     setDemoSpeaking(false);
-    setVoicePriorityLock(false);
-    if (appShellRef.current) setScreenReaderSuppressed(appShellRef.current, false);
     setActiveCharacter(null);
     setAgentStatus('Conversation ended.');
   }
@@ -419,7 +402,7 @@ function App() {
     // Never move DOM focus while a voice conversation is active. On iOS,
     // programmatic focus is enough to make VoiceOver announce the destination,
     // even when that navigation was initiated by the agent itself.
-    if (activeCharacter || voicePriorityLock) {
+    if (activeCharacter) {
       setPendingFocusId(null);
       return;
     }
@@ -430,7 +413,7 @@ function App() {
       setPendingFocusId(null);
     }, 80);
     return () => clearTimeout(timer);
-  }, [pendingFocusId, view, resultRestaurantIds, selectedRestaurantId, activeCharacter, voicePriorityLock]);
+  }, [pendingFocusId, view, resultRestaurantIds, selectedRestaurantId, activeCharacter]);
 
   useEffect(() => {
     if (view !== 'restaurant') {
@@ -584,9 +567,8 @@ function App() {
   const headerTitle = view === 'results' ? resultTitle : view === 'cart' ? 'Cart' : '';
 
   return (
-    <div className="app-shell" ref={appShellRef} data-voice-priority={voicePriorityLock ? 'true' : 'false'}>
-      <a className="skip-link" href="#main-content">Skip to content</a>
-
+    <>
+    <div className="app-shell" ref={appShellRef}>
       {view !== 'restaurant' && (
         <header className={`top-header ${view === 'home' ? 'home-header' : 'subpage-header'}`}>
           {view === 'home' ? (
@@ -706,19 +688,13 @@ function App() {
               <img src={selectedRestaurant.image} alt={selectedRestaurant.imageAlt} className="restaurant-hero-image" />
               <div className="restaurant-hero-shade" />
 
-              {activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id && (
-                <div className="face-overlay"><CharacterFace expression={selectedRestaurant.character.expression} talking={isSpeaking} /></div>
-              )}
 
               <div className="hero-restaurant-copy">
                 <button
                   type="button"
                   className={`restaurant-agent-avatar ${activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id ? 'active' : ''} ${activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id && isListening ? 'is-listening' : ''}`}
-                  onClick={() => {
-                    interruptScreenReaderSpeech();
-                    activateCharacter({ type: 'restaurant', restaurantId: selectedRestaurant.id });
-                  }}
-                  aria-label={`${selectedRestaurant.name} voice conversation`}
+                  onClick={() => activateCharacter({ type: 'restaurant', restaurantId: selectedRestaurant.id })}
+                  aria-label={`Talk to ${selectedRestaurant.name}`}
                 >
                   <CharacterFace small expression={selectedRestaurant.character.expression} talking={activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id && isSpeaking} />
                 </button>
@@ -818,7 +794,7 @@ function App() {
               </nav>
 
               {filteredMenuCount === 0 && (
-                <section className="restaurant-block empty-filter-state" aria-live="polite">
+                <section className="restaurant-block empty-filter-state">
                   <h2>No exact matches</h2>
                   <p>Try another filter to browse the rest of the menu.</p>
                   <button type="button" className="soft-button" onClick={() => setMenuFilter('featured')}>Show full menu</button>
@@ -871,11 +847,8 @@ function App() {
                 </div>
                 <button
                   className={`talk-cart-button ${activeCharacter?.type === 'cart' ? 'active' : ''}`}
-                  onClick={() => {
-                    interruptScreenReaderSpeech();
-                    activateCharacter({ type: 'cart' });
-                  }}
-                  aria-label="Cart voice conversation"
+                  onClick={() => activateCharacter({ type: 'cart' })}
+                  aria-label="Talk to cart"
                 >
                   <CharacterFace small expression="friendly" talking={activeCharacter?.type === 'cart' && isSpeaking} />
                   <span aria-hidden="true">{activeCharacter?.type === 'cart' ? 'End cart conversation' : 'Talk to my cart'}</span>
@@ -909,6 +882,17 @@ function App() {
         {agentStatus}
       </div>
     </div>
+
+    {voiceConversationActive && (
+      <button
+        ref={voiceOverProxyRef}
+        type="button"
+        className="voiceover-conversation-proxy"
+        aria-label="Voice chat. End"
+        onClick={endCharacter}
+      />
+    )}
+    </>
   );
 
 }

@@ -4,60 +4,69 @@ const EXPRESSION_MAP = {
   friendly: 'neutral',
   calm: 'neutral',
   neutral: 'neutral',
-  playful: 'playful',
   bold: 'skeptical',
-  skeptical: 'skeptical'
+  skeptical: 'skeptical',
+  playful: 'mischievous',
+  mischievous: 'mischievous'
 };
 
-function normalizeExpression(expression = 'neutral') {
-  return EXPRESSION_MAP[expression] || 'neutral';
-}
-
-const FACE_CONFIG = {
+const FACE_STATES = {
   neutral: {
-    brow: 'M53 38 C60 32, 71 32, 78 38',
-    topAccent: false,
-    cheek: false
-  },
-  playful: {
-    brow: 'M55 39 C63 27, 73 29, 79 40',
-    topAccent: true,
-    cheek: false
+    eyeX: 507,
+    eyeY: 306,
+    eyeR: 29,
+    brow: 'M 463 265 C 484 238 524 235 551 268',
+    browWidth: 6,
+    accents: false
   },
   skeptical: {
-    brow: 'M52 40 C61 38, 70 36, 80 31',
-    topAccent: false,
-    cheek: true
+    eyeX: 519,
+    eyeY: 304,
+    eyeR: 26,
+    brow: 'M 464 278 C 483 260 525 270 551 261',
+    browWidth: 7.6,
+    accents: false
+  },
+  mischievous: {
+    eyeX: 526,
+    eyeY: 298,
+    eyeR: 24,
+    brow: 'M 464 281 C 483 263 525 280 551 255',
+    browWidth: 8.2,
+    accents: true
   }
 };
 
 export default function CharacterFace({ expression = 'neutral', talking = false, small = false, label = 'Character' }) {
-  const normalized = normalizeExpression(expression);
-  const config = FACE_CONFIG[normalized];
+  const stateName = EXPRESSION_MAP[expression] || 'neutral';
+  const state = FACE_STATES[stateName];
 
   return (
     <div
-      className={`character-face expression-${normalized} ${talking ? 'is-talking' : ''} ${small ? 'is-small' : ''}`}
+      className={`character-face expression-${stateName} ${talking ? 'is-talking' : ''} ${small ? 'is-small' : ''}`}
       aria-hidden="true"
       title={label}
     >
-      <svg className="character-face-svg" viewBox="0 0 120 120" role="presentation">
-        <circle className="ring ring-left" cx="41" cy="69" r="36" />
-        <circle className="ring ring-right" cx="80" cy="36" r="36" />
+      <svg
+        className="character-face-svg"
+        viewBox="230 48 560 500"
+        role="presentation"
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <circle className="ring ring-lower" cx="420" cy="355" r="176" />
+        <circle className="ring ring-upper" cx="590" cy="243" r="176" />
 
-        {config.topAccent && <path className="top-accent" d="M47 32 L51 40" />}
-        <path className="brow" d={config.brow} />
-
-        <circle className="eye" cx="69" cy="56" r="8.5" />
-        <circle className="shine shine-large" cx="65.6" cy="52.2" r="2.6" />
-        <circle className="shine shine-small" cx="72.9" cy="59.8" r="1.55" />
-
-        {config.cheek && (
-          <g className="cheek-lines">
-            <path d="M81 66 L87 64" />
-            <path d="M83 72 L90 70" />
-          </g>
-        )}
+        <g className="eye-group">
+          <ellipse className="iris" cx={state.eyeX} cy={state.eyeY} rx={state.eyeR} ry={state.eyeR} />
+          <circle className="eye-highlight" cx={state.eyeX - 9} cy={state.eyeY - 10} r="6.2" />
+          <path className="brow" d={state.brow} style={{ strokeWidth: small ? state.browWidth * 2 : state.browWidth }} />
+          {state.accents && (
+            <g className="accent-marks">
+              <path d="M 575 337 l 14 -5" />
+              <path d="M 585 347 l 14 -6" />
+            </g>
+          )}
+        </g>
       </svg>
     </div>
   );
