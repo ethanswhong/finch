@@ -5,6 +5,7 @@ import RestaurantCard from './components/RestaurantCard.jsx';
 import MenuCard from './components/MenuCard.jsx';
 import CharacterFace from './components/CharacterFace.jsx';
 import Icon from './components/Icon.jsx';
+import { interruptScreenReaderSpeech } from './utils/accessibility.js';
 
 const AGENT_MODE = import.meta.env.VITE_AGENT_MODE || 'demo';
 const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || '';
@@ -595,8 +596,11 @@ function App() {
                 <button
                   type="button"
                   className={`restaurant-agent-avatar ${activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id ? 'active' : ''} ${activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id && isListening ? 'is-listening' : ''}`}
-                  onClick={() => activateCharacter({ type: 'restaurant', restaurantId: selectedRestaurant.id })}
-                  aria-label={activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id ? `End conversation with ${selectedRestaurant.name}` : `Introduce ${selectedRestaurant.name} and start a voice conversation`}
+                  onClick={() => {
+                    interruptScreenReaderSpeech();
+                    activateCharacter({ type: 'restaurant', restaurantId: selectedRestaurant.id });
+                  }}
+                  aria-label={`${selectedRestaurant.name} voice conversation`}
                 >
                   <CharacterFace small expression={selectedRestaurant.character.expression} talking={activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id && isSpeaking} />
                 </button>
@@ -747,9 +751,16 @@ function App() {
                     </article>
                   ))}
                 </div>
-                <button className={`talk-cart-button ${activeCharacter?.type === 'cart' ? 'active' : ''}`} onClick={() => activateCharacter({ type: 'cart' })} aria-pressed={activeCharacter?.type === 'cart'}>
+                <button
+                  className={`talk-cart-button ${activeCharacter?.type === 'cart' ? 'active' : ''}`}
+                  onClick={() => {
+                    interruptScreenReaderSpeech();
+                    activateCharacter({ type: 'cart' });
+                  }}
+                  aria-label="Cart voice conversation"
+                >
                   <CharacterFace small expression="friendly" talking={activeCharacter?.type === 'cart' && isSpeaking} />
-                  {activeCharacter?.type === 'cart' ? 'End cart conversation' : 'Talk to my cart'}
+                  <span aria-hidden="true">{activeCharacter?.type === 'cart' ? 'End cart conversation' : 'Talk to my cart'}</span>
                 </button>
                 <div className="cart-total"><span>Total</span><strong>${cartTotal.toFixed(2)}</strong></div>
                 <button className="primary-button">Continue</button>
@@ -776,9 +787,8 @@ function App() {
         </button>
       )}
 
-      <div className="sr-only" role="status" aria-live="polite">
+      <div className="sr-only" aria-hidden="true">
         {agentStatus}
-        {activeCharacter && activeEntity ? ` ${activeEntity.name} voice conversation is active. ${isSpeaking ? 'Character is speaking.' : isListening ? 'Character is listening.' : elevenConnected ? 'Character is ready.' : ''}` : ''}
       </div>
     </div>
   );
