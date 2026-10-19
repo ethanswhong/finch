@@ -30,3 +30,14 @@ Prototype menu images are in:
 `public/images/menu/`
 
 They were made from the food references provided in the design screenshots and lightly cropped/varied for the dummy prototype.
+
+## VoiceOver / agent audio isolation
+
+When the ElevenLabs agent speaks, the app now enters a voice-priority mode:
+- the app subtree is temporarily hidden from the accessibility tree,
+- programmatic DOM focus is blocked,
+- the ElevenLabs microphone is muted while agent audio is playing,
+- accessibility is restored shortly after speech ends,
+- the microphone reopens slightly later to avoid capturing queued VoiceOver audio.
+
+This intentionally disables barge-in while the agent is speaking. The tradeoff is deliberate for the prototype: preventing VoiceOver speech from being transcribed as shopper speech is more important than interruption during agent output.

@@ -5,7 +5,7 @@ import RestaurantCard from './components/RestaurantCard.jsx';
 import MenuCard from './components/MenuCard.jsx';
 import CharacterFace from './components/CharacterFace.jsx';
 import Icon from './components/Icon.jsx';
-import { interruptScreenReaderSpeech } from './utils/accessibility.js';
+import { interruptScreenReaderSpeech, setScreenReaderSuppressed } from './utils/accessibility.js';
 
 const AGENT_MODE = import.meta.env.VITE_AGENT_MODE || 'demo';
 const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || '';
@@ -14,7 +14,27 @@ const USE_SIGNED_URL = import.meta.env.VITE_USE_SIGNED_URL === 'true';
 function normalizeMessage(message) {
   if (!message) return '';
   if (typeof message === 'string') return message;
-  return message.message || message.text || message.source || '';
+  if (typeof message.message === 'string') return message.message;
+  if (typeof message.text === 'string') return message.text;
+  if (typeof message.content === 'string') return message.content;
+  if (typeof message.message?.text === 'string') return message.message.text;
+  if (typeof message.message?.content === 'string') return message.message.content;
+  return '';
+}
+
+function getMessageSource(message) {
+  if (!message || typeof message === 'string') return '';
+  return String(message.source || message.role || message.message?.role || '').toLowerCase();
+}
+
+function isExplicitEndCommand(text = '') {
+  const cleaned = text
+    .toLowerCase()
+    .replace(/[.!?,;:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return /^(please )?(quit|exit|goodbye|bye|disconnect|shut down|shutdown|end conversation|end the conversation|end this conversation|stop conversation|stop the conversation|stop this conversation|quit conversation|quit the conversation)( please| now| please now)?$/.test(cleaned);
 }
 
 
@@ -77,7 +97,11 @@ function App() {
   const [demoMuted, setDemoMuted] = useState(false);
   const [menuFilter, setMenuFilter] = useState('featured');
   const [heroHeaderProgress, setHeroHeaderProgress] = useState(0);
+  const [voicePriorityLock, setVoicePriorityLock] = useState(false);
   const heroRef = useRef(null);
+  const appShellRef = useRef(null);
+  const hasSeenAgentSpeechRef = useRef(false);
+  const unlockTimerRef = useRef(null);
   const activeCharacterRef = useRef(activeCharacter);
   activeCharacterRef.current = activeCharacter;
 
@@ -85,10 +109,35 @@ function App() {
     onMessage: (message) => {
       // Voice-first experience: the agent speaks aloud; no visible transcript/chat UI is shown.
       const text = normalizeMessage(message);
-      if (text) console.debug('Voice agent message:', text);
+      const source = getMessageSource(message);
+      if (text) console.debug(`Voice conversation message${source ? ` from ${source}` : ''}:`, text);
+
+      // Hard client-side escape hatch. Do not wait for the LLM to decide what
+      // "quit" means: explicit end-session commands immediately disconnect
+      // the ElevenLabs session, even on a tentative user transcript.
+      if (source === 'user' && isExplicitEndCommand(text)) {
+        interruptScreenReaderSpeech();
+        setActiveCharacter(null);
+        setAgentStatus('Conversation ended.');
+        void conversation.endSession().catch((error) => console.error('Could not end voice session:', error));
+      }
+    },
+    onDisconnect: () => {
+      // Covers manual endSession *and* ElevenLabs' built-in End Call system tool.
+      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
+      hasSeenAgentSpeechRef.current = false;
+      setVoicePriorityLock(false);
+      if (appShellRef.current) setScreenReaderSuppressed(appShellRef.current, false);
+      setActiveCharacter(null);
+      setAgentStatus('Conversation ended.');
     },
     onError: (error) => {
       console.error(error);
+      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
+      hasSeenAgentSpeechRef.current = false;
+      setVoicePriorityLock(false);
+      if (appShellRef.current) setScreenReaderSuppressed(appShellRef.current, false);
+      setActiveCharacter(null);
       setAgentStatus('Voice conversation error. Please tap the character button again to retry.');
     }
   });
@@ -97,6 +146,46 @@ function App() {
   const isSpeaking = AGENT_MODE === 'elevenlabs' ? Boolean(conversation.isSpeaking) : demoSpeaking;
   const isListening = AGENT_MODE === 'elevenlabs' ? Boolean(conversation.isListening) : false;
   const isMuted = AGENT_MODE === 'elevenlabs' ? Boolean(conversation.isMuted) : demoMuted;
+
+  // Voice-priority mode. Keep the microphone OPEN so the shopper can barge in,
+  // but aggressively suppress VoiceOver while the agent has the floor.
+  //
+  // We lock immediately on activation to cut the button's queued VoiceOver
+  // announcement, keep the app hidden from the accessibility tree while the
+  // agent is speaking, and restore accessibility shortly after speech ends.
+  useEffect(() => {
+    const shell = appShellRef.current;
+    if (!shell) return undefined;
+
+    if (!activeCharacter) {
+      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
+      hasSeenAgentSpeechRef.current = false;
+      setVoicePriorityLock(false);
+      setScreenReaderSuppressed(shell, false);
+      return undefined;
+    }
+
+    if (isSpeaking) {
+      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
+      hasSeenAgentSpeechRef.current = true;
+      setVoicePriorityLock(true);
+      setScreenReaderSuppressed(shell, true);
+      return undefined;
+    }
+
+    if (hasSeenAgentSpeechRef.current) {
+      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
+      unlockTimerRef.current = window.setTimeout(() => {
+        setScreenReaderSuppressed(shell, false);
+        setVoicePriorityLock(false);
+        unlockTimerRef.current = null;
+      }, 180);
+    }
+
+    return () => {
+      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
+    };
+  }, [activeCharacter, isSpeaking]);
 
   const cartItems = useMemo(() => Object.entries(cart)
     .map(([itemId, quantity]) => {
@@ -222,6 +311,9 @@ function App() {
 
   async function startElevenLabs(character) {
     if (!AGENT_ID) {
+      setVoicePriorityLock(false);
+      if (appShellRef.current) setScreenReaderSuppressed(appShellRef.current, false);
+      setActiveCharacter(null);
       setAgentStatus('Live voice is not configured yet. Add the ElevenLabs agent ID to enable continuous conversation.');
       return;
     }
@@ -252,6 +344,9 @@ function App() {
       }
     } catch (error) {
       console.error(error);
+      setVoicePriorityLock(false);
+      if (appShellRef.current) setScreenReaderSuppressed(appShellRef.current, false);
+      setActiveCharacter(null);
       setAgentStatus('Could not start the live voice agent. Check microphone permission and ElevenLabs setup.');
     }
   }
@@ -281,6 +376,16 @@ function App() {
       await endCharacter();
       return;
     }
+
+    // Silence VoiceOver immediately on the same user gesture, but keep the
+    // microphone open so the shopper can still barge in while the agent speaks.
+    // Do not wait for ElevenLabs to report isSpeaking; that is late enough for
+    // a queued VoiceOver label to leak into the beginning of the conversation.
+    interruptScreenReaderSpeech();
+    hasSeenAgentSpeechRef.current = false;
+    setVoicePriorityLock(true);
+    if (appShellRef.current) setScreenReaderSuppressed(appShellRef.current, true);
+
     setActiveCharacter(character);
     const entity = getCharacterEntity(character);
     setAgentStatus(`Conversation started with ${entity?.name || 'character'}. Tap the character button again to end.`);
@@ -293,7 +398,11 @@ function App() {
       try { await conversation.endSession(); } catch (error) { console.error(error); }
     }
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
+    hasSeenAgentSpeechRef.current = false;
     setDemoSpeaking(false);
+    setVoicePriorityLock(false);
+    if (appShellRef.current) setScreenReaderSuppressed(appShellRef.current, false);
     setActiveCharacter(null);
     setAgentStatus('Conversation ended.');
   }
@@ -306,13 +415,22 @@ function App() {
 
   useEffect(() => {
     if (!pendingFocusId) return;
+
+    // Never move DOM focus while a voice conversation is active. On iOS,
+    // programmatic focus is enough to make VoiceOver announce the destination,
+    // even when that navigation was initiated by the agent itself.
+    if (activeCharacter || voicePriorityLock) {
+      setPendingFocusId(null);
+      return;
+    }
+
     const timer = window.setTimeout(() => {
       const el = document.querySelector(`#${CSS.escape(pendingFocusId)} .restaurant-summary, #${CSS.escape(pendingFocusId)} .character-trigger, #${CSS.escape(pendingFocusId)} button`);
-      if (el?.focus) el.focus();
+      if (el?.focus) el.focus({ preventScroll: true });
       setPendingFocusId(null);
     }, 80);
     return () => clearTimeout(timer);
-  }, [pendingFocusId, view, resultRestaurantIds, selectedRestaurantId]);
+  }, [pendingFocusId, view, resultRestaurantIds, selectedRestaurantId, activeCharacter, voicePriorityLock]);
 
   useEffect(() => {
     if (view !== 'restaurant') {
@@ -466,7 +584,7 @@ function App() {
   const headerTitle = view === 'results' ? resultTitle : view === 'cart' ? 'Cart' : '';
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" ref={appShellRef} data-voice-priority={voicePriorityLock ? 'true' : 'false'}>
       <a className="skip-link" href="#main-content">Skip to content</a>
 
       {view !== 'restaurant' && (
