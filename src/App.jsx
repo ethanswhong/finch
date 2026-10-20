@@ -12,7 +12,7 @@ const AGENT_MODE = import.meta.env.VITE_AGENT_MODE || 'demo';
 const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || '';
 const USE_SIGNED_URL = import.meta.env.VITE_USE_SIGNED_URL === 'true';
 const VOICEOVER_HANDOFF_DELAY_MS = Math.max(0, Number(import.meta.env.VITE_VOICEOVER_HANDOFF_DELAY_MS || 1700));
-const VOICEOVER_CONTEXT_DELAY_MS = Math.max(0, Number(import.meta.env.VITE_VOICEOVER_CONTEXT_DELAY_MS || 1150));
+const VOICEOVER_CONTEXT_DELAY_MS = Math.max(0, Number(import.meta.env.VITE_VOICEOVER_CONTEXT_DELAY_MS || 260));
 const ELEVENLABS_SPEECH_SPEED = Number(import.meta.env.VITE_ELEVENLABS_SPEED || 0);
 const SONIOX_WAKE_ENABLED = String(import.meta.env.VITE_SONIOX_WAKE_ENABLED ?? 'true').toLowerCase() !== 'false';
 
@@ -639,7 +639,7 @@ function App() {
 
   useConversationClientTool('focusRestaurant', async ({ restaurantId }) => {
     const restaurant = getRestaurant(restaurantId);
-    if (!restaurant) return `Restaurant ${restaurantId} was not found.`;
+    if (!restaurant) return `ERROR: Restaurant ${restaurantId} was not found.`;
 
     const next = { type: 'restaurant', restaurantId };
     const nextResultIds = resultRestaurantIds.includes(restaurantId)
@@ -663,14 +663,13 @@ function App() {
       resultRestaurantIds: nextResultIds,
     });
     await focusConversationControlForContext(next);
-    return moved
-      ? `Moved to ${restaurant.name}. ${restaurant.name} is now the active conversational context.`
-      : `${restaurant.name} is now the active conversational context.`;
+    console.warn('[NAV TOOL] focusRestaurant completed', { restaurantId, restaurantName: restaurant.name, targetFound: moved });
+    return `SUCCESS: ${restaurant.name} is now the active conversational context. The navigation completed. Do not apologize or mention focusing, scrolling, or UI mechanics.`;
   });
 
   useConversationClientTool('openRestaurant', async ({ restaurantId }) => {
     const restaurant = getRestaurant(restaurantId);
-    if (!restaurant) return `Restaurant ${restaurantId} was not found.`;
+    if (!restaurant) return `ERROR: Restaurant ${restaurantId} was not found.`;
 
     const next = { type: 'restaurant', restaurantId };
     setSelectedRestaurantId(restaurantId);
@@ -683,14 +682,13 @@ function App() {
     const moved = await scrollToContextAndWait(next, { settleMs: 480 });
     pushContextUpdate(next, { view: 'restaurant', selectedRestaurantId: restaurantId });
     await focusConversationControlForContext(next);
-    return moved
-      ? `Opened ${restaurant.name}'s menu. ${restaurant.name} is now the active conversational context.`
-      : `Opened ${restaurant.name}'s menu.`;
+    console.warn('[NAV TOOL] openRestaurant completed', { restaurantId, restaurantName: restaurant.name, targetFound: moved });
+    return `SUCCESS: ${restaurant.name}'s menu is open and ${restaurant.name} is the active conversational context. Do not apologize or mention focusing, scrolling, or UI mechanics.`;
   });
 
   useConversationClientTool('focusMenuItem', async ({ itemId }) => {
     const item = getMenuItem(itemId);
-    if (!item) return `Menu item ${itemId} was not found.`;
+    if (!item) return `ERROR: Menu item ${itemId} was not found.`;
 
     const next = { type: 'menu', restaurantId: item.restaurantId, itemId };
     setSelectedRestaurantId(item.restaurantId);
@@ -705,9 +703,8 @@ function App() {
     const moved = await scrollToContextAndWait(next, { settleMs: 480 });
     pushContextUpdate(next, { view: 'restaurant', selectedRestaurantId: item.restaurantId });
     await focusConversationControlForContext(next);
-    return moved
-      ? `Moved to ${item.name}. ${item.name} is now the active conversational context.`
-      : `${item.name} is now the active conversational context.`;
+    console.warn('[NAV TOOL] focusMenuItem completed', { itemId, itemName: item.name, restaurantId: item.restaurantId, targetFound: moved });
+    return `SUCCESS: ${item.name} is now the active conversational context. The navigation completed. Do not apologize or mention focusing, scrolling, or UI mechanics.`;
   });
 
   useConversationClientTool('addCartItem', async ({ itemId, quantity = 1 }) => {
@@ -761,7 +758,8 @@ function App() {
     const moved = await scrollToContextAndWait(next, { settleMs: 360 });
     pushContextUpdate(next, { view: 'cart' });
     await focusConversationControlForContext(next);
-    return moved ? `Opened the cart with ${cartCount} items.` : `The cart has ${cartCount} items.`;
+    console.warn('[NAV TOOL] openCart completed', { targetFound: moved, cartCount });
+    return `SUCCESS: The cart is open with ${cartCount} items. Do not apologize or mention focusing, scrolling, or UI mechanics.`;
   });
 
   useConversationClientTool('goBack', async () => {
@@ -792,9 +790,10 @@ function App() {
       resultRestaurantIds,
     });
     await focusConversationControlForContext(nextContext);
+    console.warn('[NAV TOOL] goBack completed', { nextView, nextContext });
     return nextContext.type === 'general'
-      ? 'Went back one screen. Continue as neutral Finch with the new screen context.'
-      : `Went back to ${getContextName(nextContext)}.`;
+      ? 'SUCCESS: Went back one screen. Continue as neutral Finch with the new screen context.'
+      : `SUCCESS: Went back to ${getContextName(nextContext)}. Do not apologize or mention focusing, scrolling, or UI mechanics.`;
   });
 
   function openCategory(name) {
