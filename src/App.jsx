@@ -12,7 +12,6 @@ const AGENT_MODE = import.meta.env.VITE_AGENT_MODE || 'demo';
 const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || '';
 const USE_SIGNED_URL = import.meta.env.VITE_USE_SIGNED_URL === 'true';
 const VOICEOVER_HANDOFF_DELAY_MS = Math.max(0, Number(import.meta.env.VITE_VOICEOVER_HANDOFF_DELAY_MS || 1700));
-const VOICEOVER_CONTEXT_DELAY_MS = Math.max(0, Number(import.meta.env.VITE_VOICEOVER_CONTEXT_DELAY_MS || 260));
 const ELEVENLABS_SPEECH_SPEED = Number(import.meta.env.VITE_ELEVENLABS_SPEED || 0);
 const SONIOX_WAKE_ENABLED = String(import.meta.env.VITE_SONIOX_WAKE_ENABLED ?? 'true').toLowerCase() !== 'false';
 
@@ -243,23 +242,6 @@ function App() {
     window.requestAnimationFrame(() => tryScroll());
   }
 
-  async function scrollToContextAndWait(context, { behavior = 'smooth', settleMs = 420 } = {}) {
-    // The content layer can stay inert while we move it. `inert` blocks user/AT
-    // interaction, but programmatic scrolling still works. This is deliberate:
-    // the active Finch session remains the only control while the page follows
-    // the agent to another restaurant/dish.
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const target = getContextTarget(context);
-      if (target) {
-        target.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
-        if (settleMs > 0) await wait(settleMs);
-        return true;
-      }
-      await wait(70 + attempt * 25);
-    }
-    return false;
-  }
-
   function restoreContextFocus(context = currentContextRef.current) {
     if (focusRestoreTimerRef.current) window.clearTimeout(focusRestoreTimerRef.current);
     const attempt = (count = 0) => {
@@ -472,6 +454,8 @@ function App() {
         'Do not mention APP_CONTEXT, missing prototype data, or prototype scores unless the shopper explicitly asks how the demo works.',
         'Never invent exact allergens, calories, medical claims, or exact nutrition numbers.',
         'For app-wide navigation or general questions, speak as neutral Finch rather than as a restaurant or food character.',
+        'Entity ownership: when the shopper singles out one exact dish by name or clear reference — even casually, such as “I’m interested in Fiori”, “what about Fiori?”, or “tell me about this one” — make that dish the active character with focusMenuItem before answering as it. No explicit navigation verb is required.',
+        'A restaurant speaks for restaurant-level questions and for comparisons spanning multiple dishes from that restaurant. A single named dish speaks for itself.',
         'In cart comparisons, name the item before or with any first-person phrase. Never answer with an ambiguous bare “me”.',
         'Keep turns concise and interruption-friendly.',
       ],
@@ -497,16 +481,6 @@ function App() {
   function pushContextUpdate(character, overrides = {}) {
     if (AGENT_MODE !== 'elevenlabs' || conversation.status !== 'connected') return;
     conversation.sendContextualUpdate(`APP_CONTEXT UPDATED: ${buildAgentContext(character, overrides)}`);
-  }
-
-  async function focusConversationControlForContext(character) {
-    const button = finchButtonRef.current;
-    if (!button) return;
-    const name = getContextName(character) || 'Finch';
-    button.setAttribute('aria-label', `Conversing with ${name}. Double tap to end conversation.`);
-    await wait(60);
-    try { button.focus({ preventScroll: true }); } catch (_) { button.focus(); }
-    if (VOICEOVER_CONTEXT_DELAY_MS > 0) await wait(VOICEOVER_CONTEXT_DELAY_MS);
   }
 
   async function startElevenLabs(character) {
@@ -639,7 +613,7 @@ function App() {
 
   useConversationClientTool('focusRestaurant', async ({ restaurantId }) => {
     const restaurant = getRestaurant(restaurantId);
-    if (!restaurant) return `ERROR: Restaurant ${restaurantId} was not found.`;
+    if (!restaurant) return `Restaurant ${restaurantId} was not found.`;
 
     const next = { type: 'restaurant', restaurantId };
     const nextResultIds = resultRestaurantIds.includes(restaurantId)
@@ -647,6 +621,8 @@ function App() {
       : [...resultRestaurantIds, restaurantId];
     const nextTitle = view === 'results' && resultTitle ? resultTitle : 'Restaurants';
 
+    // Non-blocking experiment: semantic context changes immediately. Visual
+    // scroll/focus follows independently and is not treated as agent state.
     setResultRestaurantIds(nextResultIds);
     setResultTitle(nextTitle);
     setSelectedRestaurantId(null);
@@ -654,22 +630,20 @@ function App() {
     setContext(next);
     activeCharacterRef.current = next;
     setActiveCharacter(next);
-
-    const moved = await scrollToContextAndWait(next, { settleMs: 460 });
     pushContextUpdate(next, {
       view: 'results',
       selectedRestaurantId: null,
       resultTitle: nextTitle,
       resultRestaurantIds: nextResultIds,
     });
-    await focusConversationControlForContext(next);
-    console.warn('[NAV TOOL] focusRestaurant completed', { restaurantId, restaurantName: restaurant.name, targetFound: moved });
-    return `SUCCESS: ${restaurant.name} is now the active conversational context. The navigation completed. Do not apologize or mention focusing, scrolling, or UI mechanics.`;
+    scrollToContext(next, 'smooth');
+    console.warn('[NAV TOOL] focusRestaurant dispatched (non-blocking)', { restaurantId, restaurantName: restaurant.name });
+    return `${restaurant.name} is now the active restaurant.`;
   });
 
   useConversationClientTool('openRestaurant', async ({ restaurantId }) => {
     const restaurant = getRestaurant(restaurantId);
-    if (!restaurant) return `ERROR: Restaurant ${restaurantId} was not found.`;
+    if (!restaurant) return `Restaurant ${restaurantId} was not found.`;
 
     const next = { type: 'restaurant', restaurantId };
     setSelectedRestaurantId(restaurantId);
@@ -678,33 +652,27 @@ function App() {
     setContext(next);
     activeCharacterRef.current = next;
     setActiveCharacter(next);
-
-    const moved = await scrollToContextAndWait(next, { settleMs: 480 });
     pushContextUpdate(next, { view: 'restaurant', selectedRestaurantId: restaurantId });
-    await focusConversationControlForContext(next);
-    console.warn('[NAV TOOL] openRestaurant completed', { restaurantId, restaurantName: restaurant.name, targetFound: moved });
-    return `SUCCESS: ${restaurant.name}'s menu is open and ${restaurant.name} is the active conversational context. Do not apologize or mention focusing, scrolling, or UI mechanics.`;
+    scrollToContext(next, 'smooth');
+    console.warn('[NAV TOOL] openRestaurant dispatched (non-blocking)', { restaurantId, restaurantName: restaurant.name });
+    return `${restaurant.name}'s menu is open and ${restaurant.name} is the active restaurant.`;
   });
 
   useConversationClientTool('focusMenuItem', async ({ itemId }) => {
     const item = getMenuItem(itemId);
-    if (!item) return `ERROR: Menu item ${itemId} was not found.`;
+    if (!item) return `Menu item ${itemId} was not found.`;
 
     const next = { type: 'menu', restaurantId: item.restaurantId, itemId };
     setSelectedRestaurantId(item.restaurantId);
-    // Always reveal the complete menu before moving to a dish. A prior visual
-    // filter can otherwise keep the requested item out of the DOM entirely.
     setMenuFilter('featured');
     setView('restaurant');
     setContext(next);
     activeCharacterRef.current = next;
     setActiveCharacter(next);
-
-    const moved = await scrollToContextAndWait(next, { settleMs: 480 });
     pushContextUpdate(next, { view: 'restaurant', selectedRestaurantId: item.restaurantId });
-    await focusConversationControlForContext(next);
-    console.warn('[NAV TOOL] focusMenuItem completed', { itemId, itemName: item.name, restaurantId: item.restaurantId, targetFound: moved });
-    return `SUCCESS: ${item.name} is now the active conversational context. The navigation completed. Do not apologize or mention focusing, scrolling, or UI mechanics.`;
+    scrollToContext(next, 'smooth');
+    console.warn('[NAV TOOL] focusMenuItem dispatched (non-blocking)', { itemId, itemName: item.name, restaurantId: item.restaurantId });
+    return `${item.name} is now the active dish.`;
   });
 
   useConversationClientTool('addCartItem', async ({ itemId, quantity = 1 }) => {
@@ -755,11 +723,10 @@ function App() {
     setContext(next);
     activeCharacterRef.current = next;
     setActiveCharacter(next);
-    const moved = await scrollToContextAndWait(next, { settleMs: 360 });
     pushContextUpdate(next, { view: 'cart' });
-    await focusConversationControlForContext(next);
-    console.warn('[NAV TOOL] openCart completed', { targetFound: moved, cartCount });
-    return `SUCCESS: The cart is open with ${cartCount} items. Do not apologize or mention focusing, scrolling, or UI mechanics.`;
+    scrollToContext(next, 'smooth');
+    console.warn('[NAV TOOL] openCart dispatched (non-blocking)', { cartCount });
+    return `The cart is open with ${cartCount} items.`;
   });
 
   useConversationClientTool('goBack', async () => {
@@ -780,20 +747,17 @@ function App() {
     activeCharacterRef.current = nextContext;
     setActiveCharacter(nextContext);
     setContext(nextContext);
-
-    await wait(380);
-    if (nextContext.type !== 'general') await scrollToContextAndWait(nextContext, { settleMs: 280 });
     pushContextUpdate(nextContext, {
       view: nextView,
       selectedRestaurantId: nextSelectedId,
       resultTitle,
       resultRestaurantIds,
     });
-    await focusConversationControlForContext(nextContext);
-    console.warn('[NAV TOOL] goBack completed', { nextView, nextContext });
+    if (nextContext.type !== 'general') scrollToContext(nextContext, 'smooth');
+    console.warn('[NAV TOOL] goBack dispatched (non-blocking)', { nextView, nextContext });
     return nextContext.type === 'general'
-      ? 'SUCCESS: Went back one screen. Continue as neutral Finch with the new screen context.'
-      : `SUCCESS: Went back to ${getContextName(nextContext)}. Do not apologize or mention focusing, scrolling, or UI mechanics.`;
+      ? 'Went back one screen. Continue as neutral Finch.'
+      : `Went back to ${getContextName(nextContext)}.`;
   });
 
   function openCategory(name) {
