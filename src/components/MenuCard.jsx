@@ -13,6 +13,16 @@ export default function MenuCard({ item, restaurant, quantity, onAdd, onContext,
       data-finch-target="menu"
       onFocus={onContext}
       onPointerDown={onContext}
+      onClick={() => {
+        onContext?.();
+        onAdd();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        onContext?.();
+        onAdd();
+      }}
     >
       <div className="image-wrap menu-image-wrap" aria-hidden="true">
         <img src={item.image} alt="" />

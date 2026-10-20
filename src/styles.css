@@ -985,7 +985,7 @@ main { outline: none; }
 .restaurant-block {
   padding-left: var(--page-x);
   padding-right: var(--page-x);
-  scroll-margin-top: calc(var(--detail-header-height) + 62px);
+  scroll-margin-top: calc(var(--finch-topbar-height) + 62px);
 }
 .discovery-section { padding-bottom: 24px; }
 .filter-chip-row {
@@ -1002,7 +1002,7 @@ main { outline: none; }
 /* Sticky menu category bar: separate from the detail header, sticks below it. */
 .restaurant-menu-nav {
   position: sticky;
-  top: var(--detail-header-height);
+  top: var(--finch-topbar-height);
   z-index: 55;
   height: 62px;
   background: rgba(255,255,255,.98);
@@ -1546,8 +1546,9 @@ main { outline: none; }
   height: 28px !important;
   filter: none !important;
 }
-.finch-header-button .character-face.is-small .ring { stroke-width: 8.2 !important; }
-.finch-header-button .character-face.is-small .accent-marks { stroke-width: 6.6 !important; }
+.finch-header-button .character-face.is-small .ring { stroke-width: 14.5 !important; }
+.finch-header-button .character-face.is-small .brow { stroke-width: 17px !important; }
+.finch-header-button .character-face.is-small .accent-marks { stroke-width: 11.5 !important; }
 
 /* During a voice session the Finch control stays live; the other header
    controls remain visible for orientation but are no longer interactive. */

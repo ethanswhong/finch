@@ -46,9 +46,7 @@ function isExplicitEndCommand(text = '') {
     .replace(/\s+/g, ' ')
     .trim();
 
-  if (isFinchStopPhrase(cleaned)) return true;
-
-  return /^(please )?(quit|exit|goodbye|bye|disconnect|shut down|shutdown|end conversation|end the conversation|end this conversation|stop conversation|stop the conversation|stop this conversation|quit conversation|quit the conversation)( please| now| please now)?$/.test(cleaned);
+  return /^(please )?(disconnect|end conversation|end the conversation|end this conversation|stop conversation|stop the conversation|stop this conversation|quit conversation|quit the conversation)( please| now| please now)?$/.test(cleaned);
 }
 
 function slugify(value = '') {
@@ -141,10 +139,13 @@ function App() {
 
   const mainInteractionRef = useRef(null);
   const finchButtonRef = useRef(null);
+  const cartRef = useRef(cart);
   const currentContextRef = useRef(currentContext);
   const activeCharacterRef = useRef(activeCharacter);
   const activationGenerationRef = useRef(0);
   const focusRestoreTimerRef = useRef(null);
+  const endingConversationRef = useRef(false);
+  cartRef.current = cart;
   currentContextRef.current = currentContext;
   activeCharacterRef.current = activeCharacter;
 
@@ -166,11 +167,20 @@ function App() {
       const text = normalizeMessage(message);
       const source = getMessageSource(message);
       if (text) console.debug(`Voice conversation message${source ? ` from ${source}` : ''}:`, text);
-      if (source === 'user' && isExplicitEndCommand(text)) {
-        void endCharacter({ reason: 'voice-command' });
+      if (source === 'user') {
+        const directedFinchStop = isFinchStopPhrase(text);
+        const elevenLabsFallbackStop = isExplicitEndCommand(text) || (!SONIOX_WAKE_ENABLED && directedFinchStop);
+        if (directedFinchStop && SONIOX_WAKE_ENABLED) {
+          console.debug('[FINCH END] ElevenLabs transcript also heard a directed stop; Soniox remains the primary detector', { transcript: text });
+        }
+        if (elevenLabsFallbackStop) {
+          console.warn('[FINCH END] source=elevenlabs-user-transcript', { transcript: text });
+          void endCharacter({ reason: 'elevenlabs-user-transcript' });
+        }
       }
     },
-    onDisconnect: () => {
+    onDisconnect: (details) => {
+      console.warn('[FINCH DISCONNECT] ElevenLabs session disconnected', details || {});
       activationGenerationRef.current += 1;
       setAgentStatus('Conversation ended.');
       finishConversationState({ restoreFocus: true });
@@ -289,17 +299,27 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [conversationLockActive, activeCharacter, view, selectedRestaurantId]);
 
-  function setQuantity(itemId, quantity) {
-    setCart((current) => {
-      const next = { ...current };
-      if (quantity <= 0) delete next[itemId];
-      else next[itemId] = quantity;
-      return next;
-    });
+  function commitCart(next, { source = 'unknown', itemId = null } = {}) {
+    cartRef.current = next;
+    setCart(next);
+    console.warn('[CART] state updated', { source, itemId, cart: next });
+    return next;
   }
 
-  function addItem(itemId, quantity = 1) {
-    setCart((current) => ({ ...current, [itemId]: (current[itemId] || 0) + Math.max(1, Number(quantity) || 1) }));
+  function setQuantity(itemId, quantity, { source = 'ui' } = {}) {
+    const normalizedQuantity = Math.max(0, Math.floor(Number(quantity) || 0));
+    const next = { ...cartRef.current };
+    if (normalizedQuantity <= 0) delete next[itemId];
+    else next[itemId] = normalizedQuantity;
+    commitCart(next, { source, itemId });
+    return normalizedQuantity;
+  }
+
+  function addItem(itemId, quantity = 1, { source = 'ui' } = {}) {
+    const increment = Math.max(1, Math.floor(Number(quantity) || 1));
+    const nextQuantity = (cartRef.current[itemId] || 0) + increment;
+    commitCart({ ...cartRef.current, [itemId]: nextQuantity }, { source, itemId });
+    return nextQuantity;
   }
 
   function getVisibleRestaurants({
@@ -370,6 +390,14 @@ function App() {
     const browseTitle = overrides.resultTitle ?? resultTitle;
     const currentRestaurant = character?.restaurantId ? getRestaurant(character.restaurantId) : (selectedId ? getRestaurant(selectedId) : null);
     const currentItem = character?.itemId ? getMenuItem(character.itemId) : null;
+    const contextCart = overrides.cart ?? cartRef.current;
+    const contextCartItems = Object.entries(contextCart)
+      .map(([itemId, quantity]) => {
+        const item = getMenuItem(itemId);
+        return item ? { ...item, quantity } : null;
+      })
+      .filter(Boolean);
+    const contextCartTotal = contextCartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
     return JSON.stringify({
       app: 'Doorbase narrative shopping prototype with Finch',
       screen,
@@ -424,7 +452,7 @@ function App() {
         summary: restaurant.summary,
       })),
       restaurantDirectory: getRestaurantDirectory(),
-      cart: cartItems.map((item) => ({
+      cart: contextCartItems.map((item) => ({
         id: item.id,
         name: item.name,
         quantity: item.quantity,
@@ -438,7 +466,7 @@ function App() {
         restaurantName: item.restaurantName,
         character: sanitizeCharacter(item.character),
       })),
-      cartTotal,
+      cartTotal: contextCartTotal,
       interactionRules: [
         'This is a testing prototype: answer low-stakes qualitative shopping questions naturally and decisively from ingredients, tags, descriptions, and demoSignals.',
         'Do not mention APP_CONTEXT, missing prototype data, or prototype scores unless the shopper explicitly asks how the demo works.',
@@ -523,6 +551,7 @@ function App() {
 
   async function startConversation(character, { source = 'button', event = null } = {}) {
     const target = character || GENERAL_CONTEXT;
+    console.warn('[FINCH BEGIN] requested', { source, character: getActiveEntityName(target) });
     if (activeCharacterRef.current) {
       if (contextsEqual(activeCharacterRef.current, target)) {
         await endCharacter({ reason: 'button' });
@@ -564,23 +593,41 @@ function App() {
   }
 
   async function endCharacter({ reason = 'ui' } = {}) {
+    if (endingConversationRef.current) {
+      console.warn('[FINCH END] duplicate end request ignored', { reason, status: conversation.status });
+      return;
+    }
+
+    endingConversationRef.current = true;
+    console.warn('[FINCH END] requested', {
+      reason,
+      status: conversation.status,
+      character: getActiveEntityName(activeCharacterRef.current),
+    });
+
     activationGenerationRef.current += 1;
     const shouldCallEnd = AGENT_MODE === 'elevenlabs' && conversation.status !== 'disconnected';
-    if (shouldCallEnd) {
-      try { await conversation.endSession(); } catch (error) { console.error(error); }
+    try {
+      if (shouldCallEnd) await conversation.endSession();
+    } catch (error) {
+      console.warn('[FINCH END] ElevenLabs endSession failed', { reason, error });
+    } finally {
+      if (reason !== 'disconnect') finishConversationState({ restoreFocus: true });
+      setAgentStatus('Conversation ended.');
+      endingConversationRef.current = false;
     }
-    if (reason !== 'disconnect') finishConversationState({ restoreFocus: true });
-    setAgentStatus('Conversation ended.');
   }
 
   const wake = useFinchWakeWord({
     enabled: SONIOX_WAKE_ENABLED,
     conversationActive: conversationLockActive,
-    onWake: async () => {
+    onWake: async (transcript) => {
+      console.warn('[FINCH BEGIN] Soniox wake accepted', { transcript });
       await startConversation(currentContextRef.current || GENERAL_CONTEXT, { source: 'wake' });
     },
-    onStop: async () => {
-      if (activeCharacterRef.current) await endCharacter({ reason: 'wake-stop' });
+    onStop: async (transcript) => {
+      console.warn('[FINCH END] Soniox stop accepted', { transcript });
+      if (activeCharacterRef.current) await endCharacter({ reason: 'soniox-stop' });
     },
   });
 
@@ -663,25 +710,46 @@ function App() {
       : `${item.name} is now the active conversational context.`;
   });
 
-  useConversationClientTool('addCartItem', ({ itemId, quantity = 1 }) => {
+  useConversationClientTool('addCartItem', async ({ itemId, quantity = 1 }) => {
     const item = getMenuItem(itemId);
-    if (!item) return `Menu item ${itemId} was not found.`;
-    addItem(itemId, quantity);
-    return `Added ${Math.max(1, Number(quantity) || 1)} ${item.name} to the cart.`;
+    if (!item) {
+      console.warn('[CART TOOL] addCartItem rejected: unknown item', { itemId, quantity });
+      return `Menu item ${itemId} was not found.`;
+    }
+    const increment = Math.max(1, Math.floor(Number(quantity) || 1));
+    const nextQuantity = addItem(itemId, increment, { source: 'elevenlabs:addCartItem' });
+    console.warn('[CART TOOL] addCartItem applied', { itemId, itemName: item.name, increment, nextQuantity });
+    await wait(0);
+    pushContextUpdate(activeCharacterRef.current || currentContextRef.current || GENERAL_CONTEXT, { cart: cartRef.current });
+    return `Added ${increment} ${item.name} to the cart. ${item.name} now has quantity ${nextQuantity}.`;
   });
 
-  useConversationClientTool('removeCartItem', ({ itemId }) => {
+  useConversationClientTool('removeCartItem', async ({ itemId }) => {
     const item = getMenuItem(itemId);
-    if (!item) return `Menu item ${itemId} was not found.`;
-    setQuantity(itemId, 0);
+    if (!item) {
+      console.warn('[CART TOOL] removeCartItem rejected: unknown item', { itemId });
+      return `Menu item ${itemId} was not found.`;
+    }
+    setQuantity(itemId, 0, { source: 'elevenlabs:removeCartItem' });
+    console.warn('[CART TOOL] removeCartItem applied', { itemId, itemName: item.name });
+    await wait(0);
+    pushContextUpdate(activeCharacterRef.current || currentContextRef.current || GENERAL_CONTEXT, { cart: cartRef.current });
     return `Removed ${item.name} from the cart.`;
   });
 
-  useConversationClientTool('setCartItemQuantity', ({ itemId, quantity }) => {
+  useConversationClientTool('setCartItemQuantity', async ({ itemId, quantity }) => {
     const item = getMenuItem(itemId);
-    if (!item) return `Menu item ${itemId} was not found.`;
-    setQuantity(itemId, Number(quantity));
-    return `Set ${item.name} quantity to ${Number(quantity)}.`;
+    if (!item) {
+      console.warn('[CART TOOL] setCartItemQuantity rejected: unknown item', { itemId, quantity });
+      return `Menu item ${itemId} was not found.`;
+    }
+    const nextQuantity = setQuantity(itemId, Number(quantity), { source: 'elevenlabs:setCartItemQuantity' });
+    console.warn('[CART TOOL] setCartItemQuantity applied', { itemId, itemName: item.name, nextQuantity });
+    await wait(0);
+    pushContextUpdate(activeCharacterRef.current || currentContextRef.current || GENERAL_CONTEXT, { cart: cartRef.current });
+    return nextQuantity > 0
+      ? `Set ${item.name} quantity to ${nextQuantity}.`
+      : `Removed ${item.name} from the cart.`;
   });
 
   useConversationClientTool('openCart', async () => {
@@ -1073,7 +1141,7 @@ function App() {
                             item={item}
                             restaurant={selectedRestaurant}
                             quantity={cart[item.id] || 0}
-                            onAdd={() => addItem(item.id)}
+                            onAdd={() => addItem(item.id, 1, { source: 'menu-card' })}
                             onContext={() => setContext({ type: 'menu', restaurantId: selectedRestaurant.id, itemId: item.id })}
                             active={active}
                             talking={active && isSpeaking}
@@ -1116,9 +1184,9 @@ function App() {
                           <strong>{item.name}</strong><span>{item.restaurantName}</span><span>${item.price.toFixed(2)}</span>
                         </div>
                         <div className="quantity-control" aria-hidden="true">
-                          <button tabIndex={-1} onClick={() => setQuantity(item.id, item.quantity - 1)}>−</button>
+                          <button tabIndex={-1} onClick={() => setQuantity(item.id, item.quantity - 1, { source: 'cart-minus' })}>−</button>
                           <span>{item.quantity}</span>
-                          <button tabIndex={-1} onClick={() => setQuantity(item.id, item.quantity + 1)}>+</button>
+                          <button tabIndex={-1} onClick={() => setQuantity(item.id, item.quantity + 1, { source: 'cart-plus' })}>+</button>
                         </div>
                       </div>
                     ))}
