@@ -123,6 +123,50 @@ function contextsEqual(a, b) {
   return a.type === b.type;
 }
 
+function normalizeMenuReference(value = '') {
+  return String(value)
+    .toLowerCase()
+    .replace(/[’']/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function resolveMenuItemReference(reference, { preferredRestaurantId = null } = {}) {
+  const raw = String(reference ?? '').trim();
+  if (!raw) return { item: null, ambiguous: false, candidates: [] };
+
+  const direct = getMenuItem(raw);
+  if (direct) return { item: direct, ambiguous: false, candidates: [direct] };
+
+  const normalized = normalizeMenuReference(raw);
+  const allItems = restaurants.flatMap((restaurant) =>
+    (restaurant.menu || []).map((item) => ({ ...item, restaurantId: restaurant.id, restaurantName: restaurant.name }))
+  );
+
+  const exactMatches = allItems.filter((item) =>
+    normalizeMenuReference(item.id) === normalized || normalizeMenuReference(item.name) === normalized
+  );
+  const preferredExact = preferredRestaurantId
+    ? exactMatches.filter((item) => item.restaurantId === preferredRestaurantId)
+    : [];
+  if (preferredExact.length === 1) return { item: preferredExact[0], ambiguous: false, candidates: preferredExact };
+  if (exactMatches.length === 1) return { item: exactMatches[0], ambiguous: false, candidates: exactMatches };
+  if (exactMatches.length > 1) return { item: null, ambiguous: true, candidates: exactMatches };
+
+  const containmentMatches = allItems.filter((item) => {
+    const name = normalizeMenuReference(item.name);
+    const id = normalizeMenuReference(item.id);
+    return name && (normalized.includes(name) || name.includes(normalized) || id.includes(normalized));
+  });
+  const preferredContainment = preferredRestaurantId
+    ? containmentMatches.filter((item) => item.restaurantId === preferredRestaurantId)
+    : [];
+  if (preferredContainment.length === 1) return { item: preferredContainment[0], ambiguous: false, candidates: preferredContainment };
+  if (containmentMatches.length === 1) return { item: containmentMatches[0], ambiguous: false, candidates: containmentMatches };
+  return { item: null, ambiguous: containmentMatches.length > 1, candidates: containmentMatches };
+}
+
 function App() {
   const [view, setView] = useState('home');
   const [selectedRestaurantId, setSelectedRestaurantId] = useState(null);
@@ -149,16 +193,13 @@ function App() {
   currentContextRef.current = currentContext;
   activeCharacterRef.current = activeCharacter;
 
-  // Prime non-speech cue audio after the first genuine user interaction.
-  // This is deliberately isolated from Finch navigation/client-tool handling.
+  // Unlock the shared cue AudioContext from real interaction. Safari may
+  // otherwise block a sound that is first requested later by a Soniox callback.
   useEffect(() => {
-    const prime = () => { void primeFinchAudioCues(); };
-    window.addEventListener('pointerdown', prime, { once: true, capture: true, passive: true });
-    window.addEventListener('keydown', prime, { once: true, capture: true });
-    return () => {
-      window.removeEventListener('pointerdown', prime, true);
-      window.removeEventListener('keydown', prime, true);
-    };
+    const prime = () => { primeFinchAudioCues(); };
+    const events = ['pointerdown', 'touchstart', 'touchend', 'click', 'keydown'];
+    events.forEach((name) => window.addEventListener(name, prime, { capture: true, passive: name !== 'keydown' }));
+    return () => events.forEach((name) => window.removeEventListener(name, prime, true));
   }, []);
 
   const cartItems = useMemo(() => Object.entries(cart)
@@ -175,6 +216,10 @@ function App() {
     ...(ELEVENLABS_SPEECH_SPEED >= 0.7 && ELEVENLABS_SPEECH_SPEED <= 1.2
       ? { overrides: { tts: { speed: ELEVENLABS_SPEECH_SPEED } } }
       : {}),
+    onConnect: () => {
+      console.debug('[FINCH AUDIO] ElevenLabs connected; stopping waiting cue');
+      stopFinchWaitingCue();
+    },
     onMessage: (message) => {
       const text = normalizeMessage(message);
       const source = getMessageSource(message);
@@ -192,12 +237,14 @@ function App() {
       }
     },
     onDisconnect: (details) => {
+      stopFinchWaitingCue();
       console.warn('[FINCH DISCONNECT] ElevenLabs session disconnected', details || {});
       activationGenerationRef.current += 1;
       setAgentStatus('Conversation ended.');
       finishConversationState({ restoreFocus: true });
     },
     onError: (error) => {
+      stopFinchWaitingCue();
       console.error(error);
       activationGenerationRef.current += 1;
       setAgentStatus('Voice conversation error. Finch is ready to try again.');
@@ -446,6 +493,15 @@ function App() {
         categories: restaurant.categories,
         summary: restaurant.summary,
       })),
+      visibleMenuItems: getVisibleRestaurants({ screen, selectedId, restaurantIds: resultIds }).flatMap((restaurant) =>
+        (restaurant.menu || []).map((item) => ({
+          id: item.id,
+          name: item.name,
+          restaurantId: restaurant.id,
+          restaurantName: restaurant.name,
+          price: item.price,
+        }))
+      ),
       restaurantDirectory: getRestaurantDirectory(),
       cart: contextCartItems.map((item) => ({
         id: item.id,
@@ -469,6 +525,8 @@ function App() {
         'For app-wide navigation or general questions, speak as neutral Finch rather than as a restaurant or food character.',
         'Entity ownership: when the shopper singles out one exact dish by name or clear reference — even casually, such as “I’m interested in Fiori”, “what about Fiori?”, or “tell me about this one” — make that dish the active character with focusMenuItem before answering as it. No explicit navigation verb is required.',
         'A restaurant speaks for restaurant-level questions and for comparisons spanning multiple dishes from that restaurant. A single named dish speaks for itself.',
+        'Cart actions are not limited to currentItem. From neutral Finch or restaurant context, resolve a named dish using currentRestaurant.menu, visibleMenuItems, or restaurantDirectory and pass its exact id to addCartItem. Never omit itemId just because currentItem is null.',
+        'If a cart tool returns ITEM_NOT_FOUND or ITEM_AMBIGUOUS, use the IDs/candidates in context or the tool result and retry once before telling the shopper it failed.',
         'In cart comparisons, name the item before or with any first-person phrase. Never answer with an ambiguous bare “me”.',
         'Keep turns concise and interruption-friendly.',
       ],
@@ -696,18 +754,69 @@ function App() {
     return `${item.name} is now the active dish.`;
   });
 
-  useConversationClientTool('addCartItem', async ({ itemId, quantity = 1 }) => {
-    const item = getMenuItem(itemId);
-    if (!item) {
-      console.warn('[CART TOOL] addCartItem rejected: unknown item', { itemId, quantity });
-      return `Menu item ${itemId} was not found.`;
+  function getPreferredRestaurantIdForCartResolution() {
+    const active = activeCharacterRef.current;
+    const focused = currentContextRef.current;
+    if (active?.restaurantId) return active.restaurantId;
+    if (focused?.restaurantId) return focused.restaurantId;
+    if (selectedRestaurantId) return selectedRestaurantId;
+    return null;
+  }
+
+  function resolveCartToolItem(itemId, itemName) {
+    const preferredRestaurantId = getPreferredRestaurantIdForCartResolution();
+    let result = resolveMenuItemReference(itemId, { preferredRestaurantId });
+    if (result.item) return result;
+
+    if (itemName) {
+      result = resolveMenuItemReference(itemName, { preferredRestaurantId });
+      if (result.item) return result;
     }
+
+    const contextualItemId = activeCharacterRef.current?.type === 'menu'
+      ? activeCharacterRef.current.itemId
+      : currentContextRef.current?.type === 'menu'
+        ? currentContextRef.current.itemId
+        : null;
+    if (contextualItemId) {
+      const item = getMenuItem(contextualItemId);
+      if (item) return { item, ambiguous: false, candidates: [item] };
+    }
+    return result;
+  }
+
+  useConversationClientTool('addCartItem', async ({ itemId, itemName, name, quantity = 1 } = {}) => {
+    const resolution = resolveCartToolItem(itemId, itemName || name);
+    const item = resolution.item;
+    if (!item) {
+      const candidateSummary = (resolution.candidates || []).slice(0, 6)
+        .map((candidate) => `${candidate.name} [${candidate.id}] at ${candidate.restaurantName || getRestaurant(candidate.restaurantId)?.name || candidate.restaurantId}`)
+        .join('; ');
+      console.warn('[CART TOOL] addCartItem could not resolve item', {
+        itemId,
+        itemName: itemName || name,
+        quantity,
+        preferredRestaurantId: getPreferredRestaurantIdForCartResolution(),
+        ambiguous: resolution.ambiguous,
+        candidates: resolution.candidates?.map((candidate) => candidate.id),
+      });
+      return resolution.ambiguous
+        ? `ITEM_AMBIGUOUS: ${String(itemId || itemName || name || 'the requested dish')} matches more than one item. ${candidateSummary}`
+        : `ITEM_NOT_FOUND: Could not resolve ${String(itemId || itemName || name || 'the requested dish')}. Use an exact item id from currentRestaurant.menu, visibleMenuItems, or restaurantDirectory and retry.`;
+    }
+
     const increment = Math.max(1, Math.floor(Number(quantity) || 1));
-    const nextQuantity = addItem(itemId, increment, { source: 'elevenlabs:addCartItem' });
-    console.warn('[CART TOOL] addCartItem applied', { itemId, itemName: item.name, increment, nextQuantity });
+    const nextQuantity = addItem(item.id, increment, { source: 'elevenlabs:addCartItem' });
+    console.warn('[CART TOOL] addCartItem applied', {
+      requestedItemId: itemId,
+      resolvedItemId: item.id,
+      itemName: item.name,
+      increment,
+      nextQuantity,
+    });
     await wait(0);
     pushContextUpdate(activeCharacterRef.current || currentContextRef.current || GENERAL_CONTEXT, { cart: cartRef.current });
-    return `Added ${increment} ${item.name} to the cart. ${item.name} now has quantity ${nextQuantity}.`;
+    return `CART_SUCCESS: Added ${increment} ${item.name} to the cart. ${item.name} now has quantity ${nextQuantity}.`;
   });
 
   useConversationClientTool('removeCartItem', async ({ itemId }) => {
@@ -879,9 +988,18 @@ function App() {
         cartCount={cartCount}
         conversationActive={conversationLockActive}
         contextName={headerContextName}
-        onFinch={(event) => conversationLockActive
-          ? void endCharacter({ reason: 'header-button' })
-          : void startConversation(currentContextRef.current || GENERAL_CONTEXT, { source: 'button', event })}
+        onFinch={(event) => {
+          primeFinchAudioCues();
+          if (conversationLockActive) {
+            void playFinchCloseCue();
+            void endCharacter({ reason: 'header-button' });
+          } else {
+            void playFinchOpenCue();
+            startFinchWaitingCue({ delayMs: 420 });
+            void startConversation(currentContextRef.current || GENERAL_CONTEXT, { source: 'button', event })
+              .finally(stopFinchWaitingCue);
+          }
+        }}
         finchButtonRef={finchButtonRef}
         onBack={goBackFromUI}
         onCart={openCartFromUI}
