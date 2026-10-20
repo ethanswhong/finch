@@ -8,9 +8,9 @@ export default function CharacterButton({ active, onClick, label, talking = fals
       className={`character-trigger ${active ? 'active' : ''} ${active && listening ? 'is-listening' : ''}`}
       onClick={(event) => {
         event.stopPropagation();
-        onClick();
+        onClick(event);
       }}
-      aria-label={`Talk to ${label}`}
+      aria-label={active ? `Conversing with ${label}. Select again to end conversation.` : `Talk to ${label}`}
     >
       <CharacterFace small expression={expression} talking={active && talking} />
     </button>

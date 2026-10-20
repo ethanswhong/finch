@@ -52,3 +52,18 @@
    - Activate a restaurant and stay silent → it should introduce itself first.
    - Ask: “Can you introduce your menu?” → it should call `openRestaurant` and move to the restaurant detail page before describing dishes.
    - Activate Fiori and ask: “Are there any other restaurants that might fit me better?” → it should use `restaurantDirectory`, suggest an option, ask permission, and call `focusRestaurant` only after you say yes.
+
+## VoiceOver handoff / blocking client tools
+
+For the modal VoiceOver conversation flow, set these ElevenLabs client tools to **Block conversation while tool runs** in the ElevenLabs dashboard:
+
+- `focusRestaurant`
+- `focusMenuItem`
+
+Why: the browser handler intentionally waits `VITE_VOICEOVER_HANDOFF_DELAY_MS` while VoiceOver announces the new active character. Blocking prevents the agent from taking its next spoken turn before that handoff finishes. The microphone is temporarily muted during this in-session handoff so VoiceOver speech is not transcribed as user speech.
+
+Environment controls:
+
+- `VITE_VOICEOVER_HANDOFF_DELAY_MS=2400` — tune the handoff delay in milliseconds.
+- `VITE_SCREEN_READER_LOCK=auto` — `auto` uses an assistive/keyboard-style click heuristic; use `on` for guaranteed VoiceOver testing or `off` for a sighted-only demo.
+- `VITE_ELEVENLABS_SPEED=1.0` — optional independent agent speed override (0.7–1.2); requires the ElevenLabs Speed override to be enabled under agent Security settings.

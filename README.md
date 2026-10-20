@@ -369,3 +369,11 @@ After changing `ELEVENLABS_AGENT_PROMPT.md`, paste the updated prompt into the E
 The UI has been restyled around the supplied mobile references: a white DoorDash-like home header, four-column category grid, section skip/view-all controls, a blurred bottom search dock, and a full-bleed restaurant hero with sticky menu navigation, Deals & benefits, Reviews, discovery filters, and category sections.
 
 `src/styles.css` uses `TT Norms Pro` as the first font-family. The font files are not bundled. For iPhone/Vercel use, place your own licensed WOFF2 files under `public/fonts/` and add the corresponding `@font-face` rules. See `public/fonts/README.txt`.
+
+## Screen-reader conversation mode
+
+The prototype now treats a VoiceOver-style activation as a focused conversation mode. On activation, the character control changes to “Conversing with [name]. Select again to end conversation.” and the app waits before creating the ElevenLabs microphone/audio connection. During the conversation the background accessibility tree, touch interaction, and scrolling are blocked; only the conversation control and (off the home screen) a Back control remain operable. Back ends the session before navigating.
+
+The handoff delay is controlled by `VITE_VOICEOVER_HANDOFF_DELAY_MS`. `VITE_SCREEN_READER_LOCK=auto` uses click activation modality as a heuristic because browsers do not expose a reliable “VoiceOver is running” API to web pages. For deterministic testing, set it to `on`; for a sighted-only run, set it to `off`.
+
+If the agent changes the active restaurant or menu item through `focusRestaurant` or `focusMenuItem`, configure those client tools as **blocking** in the ElevenLabs dashboard. The handler temporarily mutes the mic, moves the active control, waits for the VoiceOver handoff, then returns control to the agent.

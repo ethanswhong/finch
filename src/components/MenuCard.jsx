@@ -4,7 +4,7 @@ import Icon from './Icon.jsx';
 
 export default function MenuCard({ item, restaurant, quantity, onAdd, onCharacter, active, talking, listening }) {
   return (
-    <article className="menu-card" id={`menu-${item.id}`}>
+    <article className={`menu-card ${active ? 'conversation-active-card' : ''}`} id={`menu-${item.id}`}>
       <div className="image-wrap menu-image-wrap">
         <img src={item.image} alt="" />
         <CharacterButton active={active} talking={talking} listening={listening} onClick={onCharacter} label={item.name} expression={item.character.expression} />

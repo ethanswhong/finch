@@ -5,7 +5,7 @@ import Icon from './Icon.jsx';
 export default function RestaurantCard({ restaurant, onOpen, onCharacter, active, talking, listening, compact = false }) {
   const summary = `${restaurant.name}. ${restaurant.rating} stars, ${restaurant.reviews} reviews. ${restaurant.distance} miles away. ${restaurant.eta}. ${restaurant.feature}. ${restaurant.priceLevel}.`;
   return (
-    <article className={`restaurant-card ${compact ? 'restaurant-card-home' : ''}`} id={`restaurant-${restaurant.id}`}>
+    <article className={`restaurant-card ${compact ? 'restaurant-card-home' : ''} ${active ? 'conversation-active-card' : ''}`} id={`restaurant-${restaurant.id}`}>
       <div className="image-wrap restaurant-image-wrap">
         <button type="button" className="image-main-button" onClick={onOpen} aria-label={`Open ${restaurant.name}`}>
           <img src={restaurant.image} alt="" />

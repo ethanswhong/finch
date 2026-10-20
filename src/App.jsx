@@ -10,6 +10,22 @@ const AGENT_MODE = import.meta.env.VITE_AGENT_MODE || 'demo';
 const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || '';
 const USE_SIGNED_URL = import.meta.env.VITE_USE_SIGNED_URL === 'true';
 
+const VOICEOVER_HANDOFF_DELAY_MS = Math.max(0, Number(import.meta.env.VITE_VOICEOVER_HANDOFF_DELAY_MS || 2400));
+const SCREEN_READER_LOCK_SETTING = String(import.meta.env.VITE_SCREEN_READER_LOCK || 'auto').toLowerCase();
+const ELEVENLABS_SPEECH_SPEED = Number(import.meta.env.VITE_ELEVENLABS_SPEED || 0);
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function looksLikeAssistiveActivation(event) {
+  if (SCREEN_READER_LOCK_SETTING === 'on' || SCREEN_READER_LOCK_SETTING === 'true') return true;
+  if (SCREEN_READER_LOCK_SETTING === 'off' || SCREEN_READER_LOCK_SETTING === 'false') return false;
+  const nativeEvent = event?.nativeEvent || event;
+  if (!nativeEvent) return false;
+  return nativeEvent.detail === 0 || ('mozInputSource' in nativeEvent && nativeEvent.mozInputSource === 0);
+}
+
 function normalizeMessage(message) {
   if (!message) return '';
   if (typeof message === 'string') return message;
@@ -96,14 +112,24 @@ function App() {
   const [demoMuted, setDemoMuted] = useState(false);
   const [menuFilter, setMenuFilter] = useState('featured');
   const [heroHeaderProgress, setHeroHeaderProgress] = useState(0);
+  const [screenReaderConversationMode, setScreenReaderConversationMode] = useState(false);
+  const [conversationAnnouncementNonce, setConversationAnnouncementNonce] = useState(0);
+  const [conversationButtonRect, setConversationButtonRect] = useState(null);
+  const [pageHeadingFocusNonce, setPageHeadingFocusNonce] = useState(0);
   const heroRef = useRef(null);
   const appShellRef = useRef(null);
   const activeCharacterRef = useRef(activeCharacter);
   const voiceOverProxyRef = useRef(null);
+  const subpageHeadingRef = useRef(null);
+  const controlFocusMuteTimerRef = useRef(null);
   const activationGenerationRef = useRef(0);
+  const screenReaderConversationModeRef = useRef(false);
   activeCharacterRef.current = activeCharacter;
 
   const conversation = useConversation({
+    ...(ELEVENLABS_SPEECH_SPEED >= 0.7 && ELEVENLABS_SPEECH_SPEED <= 1.2
+      ? { overrides: { tts: { speed: ELEVENLABS_SPEECH_SPEED } } }
+      : {}),
     onMessage: (message) => {
       // Voice-first experience: the agent speaks aloud; no visible transcript/chat UI is shown.
       const text = normalizeMessage(message);
@@ -116,6 +142,8 @@ function App() {
       if (source === 'user' && isExplicitEndCommand(text)) {
         activationGenerationRef.current += 1;
         setActiveCharacter(null);
+        setScreenReaderConversationMode(false);
+        screenReaderConversationModeRef.current = false;
         setAgentStatus('Conversation ended.');
         void conversation.endSession().catch((error) => console.error('Could not end voice session:', error));
       }
@@ -123,12 +151,16 @@ function App() {
     onDisconnect: () => {
       activationGenerationRef.current += 1;
       setActiveCharacter(null);
+      setScreenReaderConversationMode(false);
+      screenReaderConversationModeRef.current = false;
       setAgentStatus('Conversation ended.');
     },
     onError: (error) => {
       console.error(error);
       activationGenerationRef.current += 1;
       setActiveCharacter(null);
+      setScreenReaderConversationMode(false);
+      screenReaderConversationModeRef.current = false;
       setAgentStatus('Voice conversation error. Please tap the character button again to retry.');
     }
   });
@@ -140,33 +172,90 @@ function App() {
 
   const voiceConversationActive = Boolean(activeCharacter);
 
-  // While a voice conversation is active, keep the visual app fully usable
-  // but remove it from VoiceOver's accessibility tree. VoiceOver gets exactly
-  // one stable, external control instead of wandering through background UI.
-  // Crucially, this lock lasts for the WHOLE conversation, not only while the
-  // agent is speaking, so VoiceOver speech cannot leak into the open mic.
+  const conversationLockActive = Boolean(activeCharacter && screenReaderConversationMode);
+
+  function getConversationButtonSelector(character = activeCharacterRef.current) {
+    if (!character) return null;
+    if (character.type === 'restaurant') {
+      if (view === 'restaurant' && selectedRestaurantId === character.restaurantId) return '.restaurant-agent-avatar';
+      return `#restaurant-${character.restaurantId} .character-trigger`;
+    }
+    if (character.type === 'menu') return `#menu-${character.itemId} .character-trigger`;
+    if (character.type === 'cart') return '.talk-cart-button';
+    return null;
+  }
+
+  function refreshConversationButtonRect(character = activeCharacterRef.current) {
+    const selector = getConversationButtonSelector(character);
+    if (!selector) return;
+    window.requestAnimationFrame(() => {
+      const el = document.querySelector(selector);
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setConversationButtonRect({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+    });
+  }
+
+  // Screen-reader conversation mode is intentionally modal: the visible page
+  // stays in place, but VoiceOver only sees the back control (when applicable)
+  // and the active Finch conversation control. Background touch/scroll is blocked.
   useLayoutEffect(() => {
     const shell = appShellRef.current;
     if (!shell) return undefined;
 
-    if (!voiceConversationActive) {
+    if (!conversationLockActive) {
       shell.removeAttribute('aria-hidden');
+      shell.inert = false;
+      document.documentElement.classList.remove('conversation-lock-active');
       return undefined;
     }
 
-    // Move accessibility focus OUTSIDE the subtree before hiding it. Hiding a
-    // subtree that still owns VoiceOver focus is what caused Safari to jump to
-    // the top and start reading "Skip to content" and other stray elements.
-    try {
-      voiceOverProxyRef.current?.focus({ preventScroll: true });
-    } catch (_) {}
+    document.documentElement.classList.add('conversation-lock-active');
+    refreshConversationButtonRect();
 
-    shell.setAttribute('aria-hidden', 'true');
+    // Put focus on the external live control before hiding the app subtree.
+    const focusTimer = window.setTimeout(() => {
+      try { voiceOverProxyRef.current?.focus({ preventScroll: true }); } catch (_) {}
+      shell.setAttribute('aria-hidden', 'true');
+      shell.inert = true;
+    }, 40);
+
+    const preventScroll = (event) => event.preventDefault();
+    document.addEventListener('touchmove', preventScroll, { passive: false });
+    document.addEventListener('wheel', preventScroll, { passive: false });
 
     return () => {
+      window.clearTimeout(focusTimer);
       shell.removeAttribute('aria-hidden');
+      shell.inert = false;
+      document.documentElement.classList.remove('conversation-lock-active');
+      document.removeEventListener('touchmove', preventScroll);
+      document.removeEventListener('wheel', preventScroll);
     };
-  }, [voiceConversationActive]);
+  }, [conversationLockActive]);
+
+  // Character/page switches during a locked conversation must never briefly
+  // reveal the background accessibility tree. Only move the external control
+  // and let VoiceOver announce its updated label once.
+  useLayoutEffect(() => {
+    if (!conversationLockActive) return undefined;
+    const timer = window.setTimeout(() => {
+      refreshConversationButtonRect();
+      try { voiceOverProxyRef.current?.focus({ preventScroll: true }); } catch (_) {}
+    }, 70);
+    return () => window.clearTimeout(timer);
+  }, [conversationLockActive, activeCharacter, view, selectedRestaurantId, conversationAnnouncementNonce]);
+
+  useEffect(() => {
+    if (!conversationLockActive) return undefined;
+    const update = () => refreshConversationButtonRect();
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('orientationchange', update);
+    };
+  }, [conversationLockActive, activeCharacter, view, selectedRestaurantId]);
 
   const cartItems = useMemo(() => Object.entries(cart)
     .map(([itemId, quantity]) => {
@@ -294,6 +383,8 @@ function App() {
     if (!AGENT_ID) {
       activationGenerationRef.current += 1;
       setActiveCharacter(null);
+      setScreenReaderConversationMode(false);
+      screenReaderConversationModeRef.current = false;
       setAgentStatus('Live voice is not configured yet. Add the ElevenLabs agent ID to enable continuous conversation.');
       return;
     }
@@ -326,6 +417,8 @@ function App() {
       console.error(error);
       activationGenerationRef.current += 1;
       setActiveCharacter(null);
+      setScreenReaderConversationMode(false);
+      screenReaderConversationModeRef.current = false;
       setAgentStatus('Could not start the live voice agent. Check microphone permission and ElevenLabs setup.');
     }
   }
@@ -349,7 +442,37 @@ function App() {
     return null;
   }
 
-  async function activateCharacter(character) {
+  async function waitForScreenReaderHandoff(character, { muteExistingSession = false } = {}) {
+    if (!screenReaderConversationModeRef.current) return;
+
+    const wasMuted = Boolean(conversation.isMuted);
+    if (muteExistingSession && conversation.status === 'connected' && !wasMuted) {
+      try { conversation.setMuted(true); } catch (_) {}
+    }
+
+    setConversationAnnouncementNonce((value) => value + 1);
+    refreshConversationButtonRect(character);
+    await wait(VOICEOVER_HANDOFF_DELAY_MS);
+
+    if (muteExistingSession && conversation.status === 'connected' && !wasMuted) {
+      try { conversation.setMuted(false); } catch (_) {}
+    }
+  }
+
+  function handleConversationControlFocus() {
+    if (!screenReaderConversationModeRef.current || conversation.status !== 'connected') return;
+    try { conversation.sendUserActivity?.(); } catch (_) {}
+    try { conversation.setMuted(true); } catch (_) {}
+    if (controlFocusMuteTimerRef.current) window.clearTimeout(controlFocusMuteTimerRef.current);
+    controlFocusMuteTimerRef.current = window.setTimeout(() => {
+      if (conversation.status === 'connected' && screenReaderConversationModeRef.current) {
+        try { conversation.setMuted(false); } catch (_) {}
+      }
+      controlFocusMuteTimerRef.current = null;
+    }, VOICEOVER_HANDOFF_DELAY_MS);
+  }
+
+  async function activateCharacter(character, event) {
     const same = activeCharacter && JSON.stringify(activeCharacter) === JSON.stringify(character);
     if (same) {
       await endCharacter();
@@ -358,22 +481,29 @@ function App() {
 
     const generation = ++activationGenerationRef.current;
     const alreadyConnected = AGENT_MODE === 'elevenlabs' && conversation.status === 'connected';
+    const enteringConversation = !activeCharacter;
+
+    if (enteringConversation) {
+      const useScreenReaderLock = looksLikeAssistiveActivation(event);
+      screenReaderConversationModeRef.current = useScreenReaderLock;
+      setScreenReaderConversationMode(useScreenReaderLock);
+    }
 
     setActiveCharacter(character);
     const entity = getCharacterEntity(character);
     setAgentStatus(`Conversation started with ${entity?.name || 'character'}.`);
 
+    if (screenReaderConversationModeRef.current) {
+      // Delay the ENTIRE ElevenLabs startup (including getUserMedia / WebRTC)
+      // so VoiceOver can finish the handoff announcement without audio ducking.
+      await waitForScreenReaderHandoff(character, { muteExistingSession: alreadyConnected });
+      if (generation !== activationGenerationRef.current) return;
+    }
+
     if (AGENT_MODE === 'elevenlabs') {
-      // For the first activation only, give VoiceOver time to announce the one
-      // short proxy button before ElevenLabs begins speaking. Once a session is
-      // already connected, agent-to-agent switches stay silent in VoiceOver.
-      if (!alreadyConnected) {
-        await new Promise((resolve) => window.setTimeout(resolve, 1350));
-        if (generation !== activationGenerationRef.current) return;
-      }
       await startElevenLabs(character);
     } else {
-      await new Promise((resolve) => window.setTimeout(resolve, 650));
+      if (!screenReaderConversationModeRef.current) await wait(350);
       if (generation !== activationGenerationRef.current) return;
       speakDemo(entity?.character?.intro || 'Ready to talk.');
     }
@@ -381,14 +511,22 @@ function App() {
 
   async function endCharacter() {
     activationGenerationRef.current += 1;
-    if (AGENT_MODE === 'elevenlabs' && conversation.status === 'connected') {
+    if (controlFocusMuteTimerRef.current) {
+      window.clearTimeout(controlFocusMuteTimerRef.current);
+      controlFocusMuteTimerRef.current = null;
+    }
+    if (AGENT_MODE === 'elevenlabs' && conversation.status !== 'disconnected') {
       try { await conversation.endSession(); } catch (error) { console.error(error); }
     }
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     setDemoSpeaking(false);
     setActiveCharacter(null);
+    setScreenReaderConversationMode(false);
+    screenReaderConversationModeRef.current = false;
+    setConversationButtonRect(null);
     setAgentStatus('Conversation ended.');
   }
+
 
   useEffect(() => {
     if (AGENT_MODE !== 'elevenlabs' || conversation.status !== 'connected') return;
@@ -416,6 +554,14 @@ function App() {
   }, [pendingFocusId, view, resultRestaurantIds, selectedRestaurantId, activeCharacter]);
 
   useEffect(() => {
+    if (!pageHeadingFocusNonce || view !== 'results' || activeCharacter) return undefined;
+    const timer = window.setTimeout(() => {
+      try { subpageHeadingRef.current?.focus({ preventScroll: true }); } catch (_) {}
+    }, 90);
+    return () => window.clearTimeout(timer);
+  }, [pageHeadingFocusNonce, view, activeCharacter]);
+
+  useEffect(() => {
     if (view !== 'restaurant') {
       setHeroHeaderProgress(0);
       return undefined;
@@ -439,14 +585,18 @@ function App() {
   }, [view, selectedRestaurantId]);
 
   // ElevenLabs client tools. Add matching tools with the exact same names in the ElevenLabs dashboard.
-  useConversationClientTool('focusRestaurant', ({ restaurantId }) => {
+  useConversationClientTool('focusRestaurant', async ({ restaurantId }) => {
     const restaurant = getRestaurant(restaurantId);
     if (!restaurant) return `Restaurant ${restaurantId} was not found.`;
+    const nextCharacter = { type: 'restaurant', restaurantId };
     setResultTitle('Recommended restaurant');
     setResultRestaurantIds([restaurantId, ...restaurants.filter((r) => r.id !== restaurantId).slice(0, 4).map((r) => r.id)]);
     setView('results');
     setPendingFocusId(`restaurant-${restaurantId}`);
-    setActiveCharacter({ type: 'restaurant', restaurantId });
+    setActiveCharacter(nextCharacter);
+    if (screenReaderConversationModeRef.current) {
+      await waitForScreenReaderHandoff(nextCharacter, { muteExistingSession: true });
+    }
     return `Focused ${restaurant.name}. Continue speaking as ${restaurant.name}.`;
   });
 
@@ -460,13 +610,17 @@ function App() {
     return `Opened ${restaurant.name}'s detail page and menu. If the shopper asked about the menu, describe or recommend dishes now.`;
   });
 
-  useConversationClientTool('focusMenuItem', ({ itemId }) => {
+  useConversationClientTool('focusMenuItem', async ({ itemId }) => {
     const item = getMenuItem(itemId);
     if (!item) return `Menu item ${itemId} was not found.`;
+    const nextCharacter = { type: 'menu', restaurantId: item.restaurantId, itemId };
     setSelectedRestaurantId(item.restaurantId);
     setView('restaurant');
     setPendingFocusId(`menu-${itemId}`);
-    setActiveCharacter({ type: 'menu', restaurantId: item.restaurantId, itemId });
+    setActiveCharacter(nextCharacter);
+    if (screenReaderConversationModeRef.current) {
+      await waitForScreenReaderHandoff(nextCharacter, { muteExistingSession: true });
+    }
     return `Focused ${item.name}. Continue speaking as ${item.name}.`;
   });
 
@@ -503,6 +657,7 @@ function App() {
       setResultTitle('Deals for you');
       setResultRestaurantIds(dealSection?.restaurantIds || []);
       setView('results');
+      setPageHeadingFocusNonce((value) => value + 1);
       window.scrollTo(0, 0);
       return;
     }
@@ -510,6 +665,7 @@ function App() {
     setResultTitle(`${name} restaurants`);
     setResultRestaurantIds(matches.length ? matches.map((r) => r.id) : restaurants.slice(0, 5).map((r) => r.id));
     setView('results');
+    setPageHeadingFocusNonce((value) => value + 1);
     window.scrollTo(0, 0);
   }
 
@@ -525,6 +681,7 @@ function App() {
     setResultTitle(matches.length ? `Results for “${search.trim()}”` : 'Try one of these restaurants');
     setResultRestaurantIds((matches.length ? matches : restaurants.slice(0, 6)).map((r) => r.id));
     setView('results');
+    setPageHeadingFocusNonce((value) => value + 1);
     window.scrollTo(0, 0);
   }
 
@@ -535,7 +692,10 @@ function App() {
     window.scrollTo(0, 0);
   }
 
-  function goBack() {
+  async function goBack() {
+    if (activeCharacterRef.current) {
+      await endCharacter();
+    }
     if (view === 'restaurant') setView('results');
     else if (view === 'cart') setView(selectedRestaurantId ? 'restaurant' : 'home');
     else setView('home');
@@ -556,6 +716,7 @@ function App() {
     setResultTitle(section.title);
     setResultRestaurantIds(section.restaurantIds);
     setView('results');
+    setPageHeadingFocusNonce((value) => value + 1);
     window.scrollTo(0, 0);
   }
 
@@ -587,7 +748,7 @@ function App() {
           ) : (
             <div className="subpage-top-row">
               <button className="plain-icon-button" onClick={goBack} aria-label="Go back"><Icon name="back" size={30} /></button>
-              <h1>{headerTitle}</h1>
+              <h1 ref={subpageHeadingRef} tabIndex="-1">{headerTitle}</h1>
               {view !== 'cart' ? (
                 <button className="plain-icon-button" aria-label="Filter restaurants"><Icon name="sliders" size={28} /></button>
               ) : <span />}
@@ -608,7 +769,7 @@ function App() {
               </div>
               <div className="category-grid" aria-label="Food categories">
                 {categories.map((category) => (
-                  <button key={category.name} className="category-card" onClick={() => openCategory(category.name)} aria-label={`Browse ${category.name} restaurants`}>
+                  <button key={category.name} className="category-card" onClick={() => openCategory(category.name)}>
                     <span className="category-icon-wrap" aria-hidden="true">
                       <img
                         src={category.icon}
@@ -646,7 +807,7 @@ function App() {
                   {section.restaurantIds.map((id) => {
                     const restaurant = getRestaurant(id);
                     const active = activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === id;
-                    return <RestaurantCard compact key={id} restaurant={restaurant} onOpen={() => openRestaurant(id)} onCharacter={() => activateCharacter({ type: 'restaurant', restaurantId: id })} active={active} talking={active && isSpeaking} listening={active && isListening} />;
+                    return <RestaurantCard compact key={id} restaurant={restaurant} onOpen={() => openRestaurant(id)} onCharacter={(event) => activateCharacter({ type: 'restaurant', restaurantId: id }, event)} active={active} talking={active && isSpeaking} listening={active && isListening} />;
                   })}
                 </div>
               </section>
@@ -655,14 +816,13 @@ function App() {
         )}
 
         {view === 'results' && (
-          <section className="results-section" aria-labelledby="results-title">
-            <h2 className="sr-only" id="results-title">{resultTitle}</h2>
+          <section className="results-section">
             <div className="restaurant-list">
               {resultRestaurantIds.map((id) => {
                 const restaurant = getRestaurant(id);
                 if (!restaurant) return null;
                 const active = activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === id;
-                return <RestaurantCard key={id} restaurant={restaurant} onOpen={() => openRestaurant(id)} onCharacter={() => activateCharacter({ type: 'restaurant', restaurantId: id })} active={active} talking={active && isSpeaking} listening={active && isListening} />;
+                return <RestaurantCard key={id} restaurant={restaurant} onOpen={() => openRestaurant(id)} onCharacter={(event) => activateCharacter({ type: 'restaurant', restaurantId: id }, event)} active={active} talking={active && isSpeaking} listening={active && isListening} />;
               })}
             </div>
           </section>
@@ -684,17 +844,17 @@ function App() {
               </div>
             </header>
 
-            <div className="restaurant-hero-fullbleed" ref={heroRef}>
+            <div className={`restaurant-hero-fullbleed ${activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id ? 'conversation-active-card' : ''}`} ref={heroRef}>
               <img src={selectedRestaurant.image} alt={selectedRestaurant.imageAlt} className="restaurant-hero-image" />
               <div className="restaurant-hero-shade" />
 
 
-              <div className="hero-restaurant-copy">
+              <div className={`hero-restaurant-copy ${activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id ? 'conversation-active' : ''}`}>
                 <button
                   type="button"
                   className={`restaurant-agent-avatar ${activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id ? 'active' : ''} ${activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id && isListening ? 'is-listening' : ''}`}
-                  onClick={() => activateCharacter({ type: 'restaurant', restaurantId: selectedRestaurant.id })}
-                  aria-label={`Talk to ${selectedRestaurant.name}`}
+                  onClick={(event) => activateCharacter({ type: 'restaurant', restaurantId: selectedRestaurant.id }, event)}
+                  aria-label={activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id ? `Conversing with ${selectedRestaurant.name}. Select again to end conversation.` : `Talk to ${selectedRestaurant.name}`}
                 >
                   <CharacterFace small expression={selectedRestaurant.character.expression} talking={activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id && isSpeaking} />
                 </button>
@@ -810,7 +970,7 @@ function App() {
                     {section.items.map((item) => {
                       const active = activeCharacter?.type === 'menu' && activeCharacter.itemId === item.id;
                       return (
-                        <MenuCard key={item.id} item={item} restaurant={selectedRestaurant} quantity={cart[item.id] || 0} onAdd={() => addItem(item.id)} onCharacter={() => activateCharacter({ type: 'menu', restaurantId: selectedRestaurant.id, itemId: item.id })} active={active} talking={active && isSpeaking} listening={active && isListening} />
+                        <MenuCard key={item.id} item={item} restaurant={selectedRestaurant} quantity={cart[item.id] || 0} onAdd={() => addItem(item.id)} onCharacter={(event) => activateCharacter({ type: 'menu', restaurantId: selectedRestaurant.id, itemId: item.id }, event)} active={active} talking={active && isSpeaking} listening={active && isListening} />
                       );
                     })}
                   </div>
@@ -847,8 +1007,8 @@ function App() {
                 </div>
                 <button
                   className={`talk-cart-button ${activeCharacter?.type === 'cart' ? 'active' : ''}`}
-                  onClick={() => activateCharacter({ type: 'cart' })}
-                  aria-label="Talk to cart"
+                  onClick={(event) => activateCharacter({ type: 'cart' }, event)}
+                  aria-label={activeCharacter?.type === 'cart' ? 'Conversing with your cart. Select again to end conversation.' : 'Talk to cart'}
                 >
                   <CharacterFace small expression="friendly" talking={activeCharacter?.type === 'cart' && isSpeaking} />
                   <span aria-hidden="true">{activeCharacter?.type === 'cart' ? 'End cart conversation' : 'Talk to my cart'}</span>
@@ -883,14 +1043,39 @@ function App() {
       </div>
     </div>
 
-    {voiceConversationActive && (
-      <button
-        ref={voiceOverProxyRef}
-        type="button"
-        className="voiceover-conversation-proxy"
-        aria-label="Voice chat. End"
-        onClick={endCharacter}
-      />
+    {conversationLockActive && activeEntity && (
+      <>
+        <div className="conversation-lock-scrim" aria-hidden="true" />
+        <div className="conversation-lock-controls">
+          {view !== 'home' && (
+            <button
+              type="button"
+              className="conversation-lock-back"
+              aria-label="Go back and end conversation"
+              onFocus={handleConversationControlFocus}
+              onClick={goBack}
+            >
+              <Icon name="back" size={30} strokeWidth={2.35} />
+            </button>
+          )}
+          <button
+            ref={voiceOverProxyRef}
+            type="button"
+            className={`conversation-lock-button ${isListening ? 'is-listening' : ''}`}
+            style={conversationButtonRect ? {
+              left: `${conversationButtonRect.left}px`,
+              top: `${conversationButtonRect.top}px`,
+              width: `${conversationButtonRect.width}px`,
+              height: `${conversationButtonRect.height}px`
+            } : undefined}
+            aria-label={`Conversing with ${activeEntity.name}. Select again to end conversation.`}
+            onFocus={handleConversationControlFocus}
+            onClick={endCharacter}
+          >
+            <CharacterFace small expression={activeEntity.character?.expression || 'friendly'} talking={isSpeaking} />
+          </button>
+        </div>
+      </>
     )}
     </>
   );
