@@ -1748,48 +1748,29 @@ h3[role="presentation"] {
 }
 
 /* =========================================================
-   Cart accessibility + bottom reviews + audio-cue polish
+   Cart accessibility + bottom reviews (safe nonblocking patch)
    ========================================================= */
-
-/* Sticky headers should never cover the first cart control when focus or
-   programmatic scrolling moves the viewport. */
 html { scroll-padding-top: calc(var(--finch-topbar-height) + 14px); }
 .cart-page {
   padding-top: 30px !important;
   scroll-margin-top: calc(var(--finch-topbar-height) + 14px);
 }
 .cart-item,
-.cart-item-select,
+.cart-item-focus-target,
 .quantity-control button {
   scroll-margin-top: calc(var(--finch-topbar-height) + 14px);
 }
-
-/* Cart has one product selector on the left and real quantity controls on the
-   right. Focusing any of the three controls keeps that product as Finch context. */
 .cart-item {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   padding: 10px 12px;
 }
-.cart-item-select {
-  appearance: none;
-  -webkit-appearance: none;
+.cart-product-side {
   min-width: 0;
-  border: 0;
-  background: transparent;
-  padding: 4px 2px;
-  color: inherit;
-  text-align: left;
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
-  border-radius: 14px;
-}
-.cart-item-select:focus-visible,
-.quantity-control button:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
 }
 .quantity-control {
   align-self: center;
@@ -1799,6 +1780,9 @@ html { scroll-padding-top: calc(var(--finch-topbar-height) + 14px); }
   min-width: 38px;
   touch-action: manipulation;
 }
-
-/* Reviews intentionally come after every menu section. */
+.quantity-control button:focus-visible,
+.cart-item-focus-target:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
 .reviews-section { margin-top: 4px; }

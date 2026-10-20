@@ -1,16 +1,15 @@
-// Lightweight procedural audio cues for Finch.
-// No audio files are required; cues are intentionally short and non-speech so
-// they do not compete with VoiceOver or the conversational agent.
-
+// Small non-speech audio cues. This module is intentionally isolated from
+// ElevenLabs navigation/client tools so it cannot participate in context switching.
 let audioContext = null;
 let waitingTimer = null;
+let waitingInterval = null;
 let waitingGeneration = 0;
 
 function getAudioContext() {
   if (typeof window === 'undefined') return null;
-  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextCtor) return null;
-  if (!audioContext) audioContext = new AudioContextCtor();
+  const Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return null;
+  if (!audioContext) audioContext = new Ctor();
   return audioContext;
 }
 
@@ -23,7 +22,7 @@ async function ensureAudioContext() {
   return context;
 }
 
-function tone(context, { frequency, start, duration, gain = 0.055, type = 'sine' }) {
+function tone(context, { frequency, start, duration, gain = 0.05, type = 'triangle' }) {
   const oscillator = context.createOscillator();
   const volume = context.createGain();
   oscillator.type = type;
@@ -37,31 +36,33 @@ function tone(context, { frequency, start, duration, gain = 0.055, type = 'sine'
   oscillator.stop(start + duration + 0.015);
 }
 
+export async function primeFinchAudioCues() {
+  await ensureAudioContext();
+}
+
 export async function playFinchOpenCue() {
   const context = await ensureAudioContext();
   if (!context) return;
   const now = context.currentTime + 0.005;
-  // A compact upward "click": two tiny notes rather than a speech-like chime.
-  tone(context, { frequency: 620, start: now, duration: 0.055, gain: 0.06, type: 'triangle' });
-  tone(context, { frequency: 900, start: now + 0.048, duration: 0.065, gain: 0.055, type: 'triangle' });
+  tone(context, { frequency: 620, start: now, duration: 0.05, gain: 0.055 });
+  tone(context, { frequency: 900, start: now + 0.046, duration: 0.06, gain: 0.05 });
 }
 
 export async function playFinchCloseCue() {
   const context = await ensureAudioContext();
   if (!context) return;
   const now = context.currentTime + 0.005;
-  // Matching downward "click" for a clear end-of-conversation cue.
-  tone(context, { frequency: 900, start: now, duration: 0.055, gain: 0.06, type: 'triangle' });
-  tone(context, { frequency: 540, start: now + 0.048, duration: 0.07, gain: 0.055, type: 'triangle' });
+  tone(context, { frequency: 900, start: now, duration: 0.05, gain: 0.055 });
+  tone(context, { frequency: 540, start: now + 0.046, duration: 0.065, gain: 0.05 });
 }
 
-function playWaitingPulse(generation) {
+function waitingPulse(generation) {
   if (generation !== waitingGeneration) return;
   void ensureAudioContext().then((context) => {
     if (!context || generation !== waitingGeneration) return;
     const now = context.currentTime + 0.005;
-    tone(context, { frequency: 390, start: now, duration: 0.09, gain: 0.026, type: 'sine' });
-    tone(context, { frequency: 470, start: now + 0.11, duration: 0.10, gain: 0.022, type: 'sine' });
+    tone(context, { frequency: 390, start: now, duration: 0.075, gain: 0.02, type: 'sine' });
+    tone(context, { frequency: 455, start: now + 0.105, duration: 0.085, gain: 0.018, type: 'sine' });
   });
 }
 
@@ -69,23 +70,17 @@ export function startFinchWaitingCue({ delayMs = 380 } = {}) {
   stopFinchWaitingCue();
   const generation = ++waitingGeneration;
   waitingTimer = window.setTimeout(() => {
+    waitingTimer = null;
     if (generation !== waitingGeneration) return;
-    playWaitingPulse(generation);
-    waitingTimer = window.setInterval(() => playWaitingPulse(generation), 720);
+    waitingPulse(generation);
+    waitingInterval = window.setInterval(() => waitingPulse(generation), 760);
   }, Math.max(0, delayMs));
 }
 
 export function stopFinchWaitingCue() {
   waitingGeneration += 1;
-  if (waitingTimer != null) {
-    window.clearTimeout(waitingTimer);
-    window.clearInterval(waitingTimer);
-    waitingTimer = null;
-  }
-}
-
-// Best-effort unlock after a real pointer/keyboard interaction. Voice wake can
-// still work without this on browsers that allow WebAudio after mic permission.
-export function primeFinchAudioCues() {
-  void ensureAudioContext();
+  if (waitingTimer !== null) window.clearTimeout(waitingTimer);
+  if (waitingInterval !== null) window.clearInterval(waitingInterval);
+  waitingTimer = null;
+  waitingInterval = null;
 }

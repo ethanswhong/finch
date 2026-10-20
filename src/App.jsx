@@ -149,6 +149,18 @@ function App() {
   currentContextRef.current = currentContext;
   activeCharacterRef.current = activeCharacter;
 
+  // Prime non-speech cue audio after the first genuine user interaction.
+  // This is deliberately isolated from Finch navigation/client-tool handling.
+  useEffect(() => {
+    const prime = () => { void primeFinchAudioCues(); };
+    window.addEventListener('pointerdown', prime, { once: true, capture: true, passive: true });
+    window.addEventListener('keydown', prime, { once: true, capture: true });
+    return () => {
+      window.removeEventListener('pointerdown', prime, true);
+      window.removeEventListener('keydown', prime, true);
+    };
+  }, []);
+
   const cartItems = useMemo(() => Object.entries(cart)
     .map(([itemId, quantity]) => {
       const item = getMenuItem(itemId);
@@ -163,10 +175,6 @@ function App() {
     ...(ELEVENLABS_SPEECH_SPEED >= 0.7 && ELEVENLABS_SPEECH_SPEED <= 1.2
       ? { overrides: { tts: { speed: ELEVENLABS_SPEECH_SPEED } } }
       : {}),
-    onConnect: () => {
-      stopFinchWaitingCue();
-      console.debug('[FINCH AUDIO] ElevenLabs connected; waiting cue stopped');
-    },
     onMessage: (message) => {
       const text = normalizeMessage(message);
       const source = getMessageSource(message);
@@ -184,14 +192,12 @@ function App() {
       }
     },
     onDisconnect: (details) => {
-      stopFinchWaitingCue();
       console.warn('[FINCH DISCONNECT] ElevenLabs session disconnected', details || {});
       activationGenerationRef.current += 1;
       setAgentStatus('Conversation ended.');
       finishConversationState({ restoreFocus: true });
     },
     onError: (error) => {
-      stopFinchWaitingCue();
       console.error(error);
       activationGenerationRef.current += 1;
       setAgentStatus('Voice conversation error. Finch is ready to try again.');
@@ -231,8 +237,7 @@ function App() {
       return document.querySelector(`[data-finch-restaurant-detail="${CSS.escape(context.restaurantId)}"]`);
     }
     if (context.type === 'menu') {
-      return document.getElementById(`menu-${context.itemId}`)
-        || document.querySelector(`#cart-${CSS.escape(context.itemId)} .cart-item-select`);
+      return document.getElementById(`menu-${context.itemId}`) || document.getElementById(`cart-${context.itemId}`);
     }
     if (context.type === 'cart') return document.querySelector('.cart-page');
     return null;
@@ -267,7 +272,6 @@ function App() {
   }
 
   function finishConversationState({ restoreFocus = true } = {}) {
-    stopFinchWaitingCue();
     const restoreContext = currentContextRef.current;
     setActiveCharacter(null);
     activeCharacterRef.current = null;
@@ -506,7 +510,6 @@ function App() {
       }
 
       const dynamicVariables = { character_intro: getInitialCharacterIntro(character) };
-      startFinchWaitingCue({ delayMs: 380 });
       if (USE_SIGNED_URL) {
         const response = await fetch('/api/elevenlabs-signed-url');
         if (!response.ok) throw new Error('Could not get ElevenLabs signed URL');
@@ -515,9 +518,7 @@ function App() {
       } else {
         await conversation.startSession({ agentId: AGENT_ID, dynamicVariables });
       }
-      stopFinchWaitingCue();
     } catch (error) {
-      stopFinchWaitingCue();
       console.error(error);
       finishConversationState({ restoreFocus: true });
       setAgentStatus('Could not start Finch. Check microphone permission and ElevenLabs setup.');
@@ -585,7 +586,6 @@ function App() {
     }
 
     endingConversationRef.current = true;
-    stopFinchWaitingCue();
     console.warn('[FINCH END] requested', {
       reason,
       status: conversation.status,
@@ -611,10 +611,16 @@ function App() {
     onWake: async (transcript) => {
       console.warn('[FINCH BEGIN] Soniox wake accepted', { transcript });
       void playFinchOpenCue();
-      await startConversation(currentContextRef.current || GENERAL_CONTEXT, { source: 'wake' });
+      startFinchWaitingCue({ delayMs: 380 });
+      try {
+        await startConversation(currentContextRef.current || GENERAL_CONTEXT, { source: 'wake' });
+      } finally {
+        stopFinchWaitingCue();
+      }
     },
     onStop: async (transcript) => {
       console.warn('[FINCH END] Soniox stop accepted', { transcript });
+      stopFinchWaitingCue();
       void playFinchCloseCue();
       if (activeCharacterRef.current) await endCharacter({ reason: 'soniox-stop' });
     },
@@ -865,12 +871,7 @@ function App() {
   const headerContextName = getContextName(currentContext) || (view === 'results' ? resultTitle : view === 'cart' ? 'your cart' : '');
 
   return (
-    <div
-      className={`app-shell ${conversationLockActive ? 'conversation-lock-active' : ''}`}
-      onPointerDownCapture={primeFinchAudioCues}
-      onClickCapture={primeFinchAudioCues}
-      onKeyDownCapture={primeFinchAudioCues}
-    >
+    <div className={`app-shell ${conversationLockActive ? 'conversation-lock-active' : ''}`}>
       <UnifiedHeader
         view={view}
         title={headerTitle}
@@ -1149,42 +1150,39 @@ function App() {
                       const active = activeCharacter?.type === 'menu' && activeCharacter.itemId === item.id;
                       return (
                         <div
-                          className={`cart-item ${active ? 'conversation-active-card' : ''}`}
+                          className={`cart-item cart-item-focus-target ${active ? 'conversation-active-card' : ''}`}
                           key={item.id}
                           id={`cart-${item.id}`}
+                          tabIndex={0}
                           data-finch-target="menu"
-                          onFocusCapture={selectItemContext}
-                          onPointerDownCapture={selectItemContext}
+                          aria-label={`${item.name}. ${item.restaurantName}. ${item.price.toFixed(2)} dollars. Quantity ${item.quantity}.`}
+                          onFocus={selectItemContext}
+                          onPointerDown={selectItemContext}
                         >
-                          <button
-                            type="button"
-                            className="cart-item-select cart-item-focus-target"
-                            aria-label={`${item.name}. ${item.restaurantName}. ${item.price.toFixed(2)} dollars. Quantity ${item.quantity}.`}
-                            onClick={selectItemContext}
-                          >
-                            <span className="cart-thumb-wrap" aria-hidden="true">
+                          <div className="cart-product-side" aria-hidden="true">
+                            <div className="cart-thumb-wrap">
                               <img src={item.image} alt="" />
                               {active && isSpeaking && (
-                                <span className="context-character-overlay context-character-overlay-cart">
+                                <div className="context-character-overlay context-character-overlay-cart">
                                   <CharacterFace expression={item.character.expression} talking label={item.name} />
-                                </span>
+                                </div>
                               )}
-                            </span>
-                            <span className="cart-item-copy" aria-hidden="true">
+                            </div>
+                            <div className="cart-item-copy">
                               <strong>{item.name}</strong><span>{item.restaurantName}</span><span>${item.price.toFixed(2)}</span>
-                            </span>
-                          </button>
-                          <div className="quantity-control">
+                            </div>
+                          </div>
+                          <div className="quantity-control" onFocusCapture={selectItemContext} onPointerDownCapture={selectItemContext}>
                             <button
                               type="button"
                               aria-label={`Decrease ${item.name} quantity. Current quantity ${item.quantity}.`}
-                              onClick={() => setQuantity(item.id, item.quantity - 1, { source: 'cart-minus' })}
+                              onClick={(event) => { event.stopPropagation(); setQuantity(item.id, item.quantity - 1, { source: 'cart-minus' }); }}
                             >−</button>
                             <span aria-hidden="true">{item.quantity}</span>
                             <button
                               type="button"
                               aria-label={`Increase ${item.name} quantity. Current quantity ${item.quantity}.`}
-                              onClick={() => setQuantity(item.id, item.quantity + 1, { source: 'cart-plus' })}
+                              onClick={(event) => { event.stopPropagation(); setQuantity(item.id, item.quantity + 1, { source: 'cart-plus' }); }}
                             >+</button>
                           </div>
                         </div>
