@@ -1667,3 +1667,81 @@ main { outline: none; }
   .unified-header-title { font-size: 16px; }
   .unified-header .location-button { font-size: 16px; }
 }
+
+/* =========================================================
+   Finch audio/context stabilization pass
+   ========================================================= */
+
+/* Search is a conventional search field now; Finch is only in the top bar. */
+.bottom-search input[type="search"] {
+  width: 100%;
+  min-width: 0;
+  padding-right: 4px;
+}
+
+/* While a restaurant or dish itself is speaking, show Finch over that exact
+   visual target. This is purely visual: it never creates another VO stop. */
+.context-character-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  animation: contextFinchAppear .2s ease-out both;
+}
+.context-character-overlay::before {
+  content: "";
+  position: absolute;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.96);
+  box-shadow: 0 8px 24px rgba(0,0,0,.18);
+}
+.context-character-overlay .character-face {
+  position: relative;
+  z-index: 1;
+  width: 76px !important;
+  height: 68px !important;
+  filter: none !important;
+}
+.context-character-overlay .character-face .ring {
+  stroke-width: 7.4 !important;
+}
+.context-character-overlay-hero {
+  z-index: 14;
+}
+.context-character-overlay-cart::before {
+  width: 64px;
+  height: 64px;
+}
+.context-character-overlay-cart .character-face {
+  width: 52px !important;
+  height: 47px !important;
+}
+@keyframes contextFinchAppear {
+  from { opacity: 0; transform: scale(.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Ensure image containers can anchor the speaking overlay. */
+.restaurant-image-wrap,
+.menu-image-wrap,
+.cart-thumb-wrap,
+.restaurant-hero-fullbleed {
+  position: relative;
+}
+
+/* The currently active visual target remains visible above the wash. User
+   gestures are still blocked; Finch can continue to scroll it programmatically. */
+.conversation-lock-active .conversation-active-card {
+  z-index: 225 !important;
+}
+
+/* Avoid accidental browser text/landmark-like focus around decorative headings. */
+h1[role="presentation"],
+h2[role="presentation"],
+h3[role="presentation"] {
+  outline: none;
+}

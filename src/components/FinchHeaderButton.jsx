@@ -3,7 +3,9 @@ import CharacterFace from './CharacterFace.jsx';
 
 export default function FinchHeaderButton({ active = false, contextName = '', onClick, buttonRef, surface = 'plain' }) {
   const label = active
-    ? 'End Finch conversation'
+    ? contextName
+      ? `Conversing with ${contextName}. Double tap to end conversation.`
+      : 'Conversing with Finch. Double tap to end conversation.'
     : contextName
       ? `Talk with Finch about ${contextName}`
       : 'Talk with Finch';

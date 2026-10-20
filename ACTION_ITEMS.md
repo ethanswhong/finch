@@ -11,12 +11,14 @@ VITE_USE_SIGNED_URL=false
 SONIOX_API_KEY=your_soniox_key
 VITE_SONIOX_WAKE_ENABLED=true
 VITE_VOICEOVER_HANDOFF_DELAY_MS=1700
-VITE_AUDIO_HANDOFF_DELAY_MS=160
+VITE_VOICEOVER_CONTEXT_DELAY_MS=1150
 ```
 
 `SONIOX_API_KEY` is server-side only. The browser calls `/api/soniox-temp-key` and receives a short-lived transcription key.
 
 The included `vite.config.js` serves that endpoint during `npm run dev`. The included `api/soniox-temp-key.js` provides the same endpoint on Vercel.
+
+Soniox now remains connected while ElevenLabs is active. In browse mode it recognizes wake phrases; during a Finch conversation it ignores wake phrases and only watches for explicit stop phrases such as `stop Finch` / `bye Finch`. This avoids tearing down and recreating the iOS microphone route during the VoiceOver → ElevenLabs handoff.
 
 ## 2. Install dependencies
 
@@ -24,24 +26,24 @@ The included `vite.config.js` serves that endpoint during `npm run dev`. The inc
 npm install
 ```
 
-The project now uses `@soniox/client` for the idle wake-phrase listener.
+The project uses `@soniox/client` for the continuous wake/stop listener.
 
 ## 3. ElevenLabs client tools
 
-Create these client tools with these exact names:
+Create these client tools with these exact names and parameter identifiers:
 
-- `focusRestaurant`
-- `openRestaurant`
-- `focusMenuItem`
-- `addCartItem`
-- `removeCartItem`
-- `setCartItemQuantity`
-- `openCart`
-- `goBack`
+- `focusRestaurant(restaurantId: string)` — move the results list to a restaurant and make that restaurant the conversational character.
+- `openRestaurant(restaurantId: string)` — open that restaurant's menu page and make the restaurant the conversational character.
+- `focusMenuItem(itemId: string)` — reveal/focus a dish on its restaurant menu and make that dish the conversational character.
+- `addCartItem(itemId: string, quantity?: number)`
+- `removeCartItem(itemId: string)`
+- `setCartItemQuantity(itemId: string, quantity: number)`
+- `openCart()`
+- `goBack()`
 
-For navigation tools (`focusRestaurant`, `openRestaurant`, `focusMenuItem`, `openCart`, `goBack`), enable **Block conversation while tool runs** so the page transition/scroll completes before the agent continues.
+For **every navigation tool** (`focusRestaurant`, `openRestaurant`, `focusMenuItem`, `openCart`, `goBack`), enable **Block conversation while tool runs / Wait for response**. This is important: the handler now waits for the React page transition, programmatic scroll, context update, and short VoiceOver context announcement before returning.
 
-Also enable the built-in **End Call** system tool.
+Also enable the built-in **End Call** system tool as a fallback. Soniox is the primary client-side stop detector for `stop/bye Finch` during the demo.
 
 ## 4. First message
 
@@ -53,11 +55,12 @@ Keep First Message Overrides enabled and use:
 
 ## 5. Test sequence
 
-1. Browse restaurants with VoiceOver: each restaurant should be one focus stop.
-2. Focus a restaurant, then activate the persistent top-right Finch button.
-3. End and confirm focus returns to that restaurant card.
-4. Say "Hey Finch" while a restaurant or dish is focused.
-5. During a conversation, ask Finch to move to another restaurant/dish. The page should animate there while all touch/UI interaction stays locked except the Finch end button.
-6. End and confirm focus lands on the newly active restaurant/dish.
-7. In cart, ask "Who has the highest protein?" and confirm the answer names the item (for example, "Fiori...") rather than saying an ambiguous "me."
-8. Say "bye Finch", "stop Finch", and likely STT variants such as "stop Fetch" / "bye Pinch" and confirm the client fallback ends the session.
+1. Browse restaurants with VoiceOver. Each restaurant should be one focus stop; it should not announce a banner/region/main ending or the raw `$$` price level.
+2. Enter Pizza. With no restaurant focused, Finch should know the shopper is browsing “Pizza restaurants.”
+3. Focus a restaurant, then activate the persistent top-right Finch button.
+4. During the conversation, say “show me Mountain Mike's” / “open Passione Emporio” / “move to Fiori.” The page should visibly move while the screen remains interaction-locked.
+5. On each navigation tool, confirm the top-right control announces the newly active context and the agent then continues in that restaurant/dish personality.
+6. End and confirm VoiceOver focus returns to the newly active restaurant/dish.
+7. Say `Hey Finch`, plus likely variants such as `Hey Fetch` / `Hi Pinch`.
+8. During an ElevenLabs conversation, say `stop Finch`, `bye Finch`, `stop Fetch`, or `bye Pinch`. Soniox should terminate the session consistently.
+9. In cart, ask “Who has the highest protein?” and confirm the answer names the item rather than saying an ambiguous bare “me.”

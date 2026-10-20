@@ -1,10 +1,11 @@
 import React from 'react';
 import Icon from './Icon.jsx';
+import CharacterFace from './CharacterFace.jsx';
 
-export default function RestaurantCard({ restaurant, onOpen, onContext, active = false, compact = false }) {
-  const summary = `${restaurant.name}. ${restaurant.rating} stars, ${restaurant.reviews} reviews. ${restaurant.distance} miles away. ${restaurant.eta}. ${restaurant.feature}. ${restaurant.priceLevel}.`;
+export default function RestaurantCard({ restaurant, onOpen, onContext, active = false, talking = false, compact = false }) {
+  const summary = `${restaurant.name}. ${restaurant.rating} stars, ${restaurant.reviews} reviews. ${restaurant.distance} miles away. ${restaurant.eta}. ${restaurant.feature}.`;
   return (
-    <article className={`restaurant-card ${compact ? 'restaurant-card-home' : ''} ${active ? 'conversation-active-card' : ''}`} id={`restaurant-${restaurant.id}`}>
+    <div className={`restaurant-card ${compact ? 'restaurant-card-home' : ''} ${active ? 'conversation-active-card' : ''}`} id={`restaurant-${restaurant.id}`}>
       <button
         type="button"
         className="restaurant-card-focus-target"
@@ -16,6 +17,11 @@ export default function RestaurantCard({ restaurant, onOpen, onContext, active =
       >
         <div className="image-wrap restaurant-image-wrap" aria-hidden="true">
           <img src={restaurant.image} alt="" />
+          {active && talking && (
+            <div className="context-character-overlay">
+              <CharacterFace expression={restaurant.character.expression} talking label={restaurant.name} />
+            </div>
+          )}
         </div>
         <div className="restaurant-summary-row" aria-hidden="true">
           <div className="restaurant-summary">
@@ -27,6 +33,6 @@ export default function RestaurantCard({ restaurant, onOpen, onContext, active =
           <span className="favorite-button" aria-hidden="true"><Icon name="heart" size={27} /></span>
         </div>
       </button>
-    </article>
+    </div>
   );
 }

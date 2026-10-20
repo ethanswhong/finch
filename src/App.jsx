@@ -5,13 +5,14 @@ import RestaurantCard from './components/RestaurantCard.jsx';
 import MenuCard from './components/MenuCard.jsx';
 import UnifiedHeader from './components/UnifiedHeader.jsx';
 import Icon from './components/Icon.jsx';
+import CharacterFace from './components/CharacterFace.jsx';
 import useFinchWakeWord, { isFinchStopPhrase } from './hooks/useFinchWakeWord.js';
 
 const AGENT_MODE = import.meta.env.VITE_AGENT_MODE || 'demo';
 const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || '';
 const USE_SIGNED_URL = import.meta.env.VITE_USE_SIGNED_URL === 'true';
 const VOICEOVER_HANDOFF_DELAY_MS = Math.max(0, Number(import.meta.env.VITE_VOICEOVER_HANDOFF_DELAY_MS || 1700));
-const AUDIO_HANDOFF_DELAY_MS = Math.max(0, Number(import.meta.env.VITE_AUDIO_HANDOFF_DELAY_MS || 160));
+const VOICEOVER_CONTEXT_DELAY_MS = Math.max(0, Number(import.meta.env.VITE_VOICEOVER_CONTEXT_DELAY_MS || 1150));
 const ELEVENLABS_SPEECH_SPEED = Number(import.meta.env.VITE_ELEVENLABS_SPEED || 0);
 const SONIOX_WAKE_ENABLED = String(import.meta.env.VITE_SONIOX_WAKE_ENABLED ?? 'true').toLowerCase() !== 'false';
 
@@ -37,11 +38,6 @@ function getMessageSource(message) {
   return String(message.source || message.role || message.message?.role || '').toLowerCase();
 }
 
-function looksLikeAssistiveActivation(event) {
-  const nativeEvent = event?.nativeEvent || event;
-  if (!nativeEvent) return false;
-  return nativeEvent.detail === 0 || ('mozInputSource' in nativeEvent && nativeEvent.mozInputSource === 0);
-}
 
 function isExplicitEndCommand(text = '') {
   const cleaned = String(text)
@@ -306,11 +302,40 @@ function App() {
     setCart((current) => ({ ...current, [itemId]: (current[itemId] || 0) + Math.max(1, Number(quantity) || 1) }));
   }
 
-  function getVisibleRestaurants() {
-    if (view === 'home') return restaurants;
-    if (view === 'results') return resultRestaurantIds.map(getRestaurant).filter(Boolean);
-    if (view === 'restaurant' && selectedRestaurant) return [selectedRestaurant];
+  function getVisibleRestaurants({
+    screen = view,
+    selectedId = selectedRestaurantId,
+    restaurantIds = resultRestaurantIds,
+  } = {}) {
+    if (screen === 'home') return restaurants;
+    if (screen === 'results') return restaurantIds.map(getRestaurant).filter(Boolean);
+    if (screen === 'restaurant' && selectedId) {
+      const restaurant = getRestaurant(selectedId);
+      return restaurant ? [restaurant] : [];
+    }
     return [];
+  }
+
+  function getBrowseContext({
+    screen = view,
+    title = resultTitle,
+    selectedId = selectedRestaurantId,
+    query = search,
+  } = {}) {
+    if (screen === 'results') {
+      return {
+        screen,
+        title,
+        query: title.startsWith('Results for') ? query.trim() : '',
+        description: `The shopper is browsing ${title}.`,
+      };
+    }
+    if (screen === 'restaurant' && selectedId) {
+      const restaurant = getRestaurant(selectedId);
+      return { screen, title: restaurant?.name || 'Restaurant menu', query: '', description: `The shopper is on ${restaurant?.name || 'a restaurant'}'s menu page.` };
+    }
+    if (screen === 'cart') return { screen, title: 'Cart', query: '', description: 'The shopper is viewing the cart.' };
+    return { screen: 'home', title: 'Home', query: '', description: 'The shopper is on the food-delivery home screen.' };
   }
 
   function getRestaurantDirectory() {
@@ -338,12 +363,17 @@ function App() {
     }));
   }
 
-  function buildAgentContext(character = activeCharacterRef.current || currentContextRef.current) {
-    const currentRestaurant = character?.restaurantId ? getRestaurant(character.restaurantId) : selectedRestaurant;
+  function buildAgentContext(character = activeCharacterRef.current || currentContextRef.current, overrides = {}) {
+    const screen = overrides.view ?? view;
+    const selectedId = Object.prototype.hasOwnProperty.call(overrides, 'selectedRestaurantId') ? overrides.selectedRestaurantId : selectedRestaurantId;
+    const resultIds = overrides.resultRestaurantIds ?? resultRestaurantIds;
+    const browseTitle = overrides.resultTitle ?? resultTitle;
+    const currentRestaurant = character?.restaurantId ? getRestaurant(character.restaurantId) : (selectedId ? getRestaurant(selectedId) : null);
     const currentItem = character?.itemId ? getMenuItem(character.itemId) : null;
     return JSON.stringify({
       app: 'Doorbase narrative shopping prototype with Finch',
-      screen: view,
+      screen,
+      browseContext: getBrowseContext({ screen, title: browseTitle, selectedId, query: search }),
       currentCharacter: character || GENERAL_CONTEXT,
       currentFocusContext: currentContextRef.current,
       currentRestaurant: currentRestaurant ? {
@@ -383,7 +413,7 @@ function App() {
         restaurantId: currentItem.restaurantId,
         restaurantName: currentItem.restaurantName,
       } : null,
-      visibleRestaurants: getVisibleRestaurants().map((restaurant) => ({
+      visibleRestaurants: getVisibleRestaurants({ screen, selectedId, restaurantIds: resultIds }).map((restaurant) => ({
         id: restaurant.id,
         name: restaurant.name,
         rating: restaurant.rating,
@@ -421,7 +451,10 @@ function App() {
   }
 
   function getInitialCharacterIntro(character) {
-    if (!character || character.type === 'general') return 'Hey, I’m Finch. What can I help you figure out?';
+    if (!character || character.type === 'general') {
+      if (view === 'results' && resultTitle) return `Hey, I’m Finch. You’re browsing ${resultTitle}. What would you like to figure out?`;
+      return 'Hey, I’m Finch. What can I help you figure out?';
+    }
     if (character.type === 'cart') return `Hey, I’m Finch. You have ${cartCount} ${cartCount === 1 ? 'item' : 'items'} in your cart. I can compare them or help you narrow things down.`;
     const entity = getContextEntity(character);
     return entity?.character?.intro || `Hey, I’m ${entity?.name || 'Finch'}. What would you like to know?`;
@@ -433,13 +466,19 @@ function App() {
     return getContextEntity(character)?.name || 'Finch';
   }
 
-  function triggerContextSwitch(character) {
-    conversation.sendContextualUpdate(`APP_CONTEXT UPDATED: ${buildAgentContext(character)}`);
-    const entityName = getActiveEntityName(character);
-    conversation.sendUserMessage(
-      `SYSTEM EVENT: The active shopping context changed to ${entityName}. Continue naturally in the appropriate voice for that context. ` +
-      'Do not explain the UI transition. If you use first person as a product or restaurant, make the speaker identity clear.',
-    );
+  function pushContextUpdate(character, overrides = {}) {
+    if (AGENT_MODE !== 'elevenlabs' || conversation.status !== 'connected') return;
+    conversation.sendContextualUpdate(`APP_CONTEXT UPDATED: ${buildAgentContext(character, overrides)}`);
+  }
+
+  async function focusConversationControlForContext(character) {
+    const button = finchButtonRef.current;
+    if (!button) return;
+    const name = getContextName(character) || 'Finch';
+    button.setAttribute('aria-label', `Conversing with ${name}. Double tap to end conversation.`);
+    await wait(60);
+    try { button.focus({ preventScroll: true }); } catch (_) { button.focus(); }
+    if (VOICEOVER_CONTEXT_DELAY_MS > 0) await wait(VOICEOVER_CONTEXT_DELAY_MS);
   }
 
   async function startElevenLabs(character) {
@@ -451,7 +490,7 @@ function App() {
 
     try {
       if (conversation.status === 'connected') {
-        triggerContextSwitch(character);
+        pushContextUpdate(character);
         return;
       }
 
@@ -493,7 +532,7 @@ function App() {
       setActiveCharacter(target);
       setContext(target);
       scrollToContext(target, 'smooth');
-      if (AGENT_MODE === 'elevenlabs' && conversation.status === 'connected') triggerContextSwitch(target);
+      pushContextUpdate(target);
       return;
     }
 
@@ -502,13 +541,15 @@ function App() {
     setActiveCharacter(target);
     setAgentStatus(`Finch conversation started with ${getActiveEntityName(target)}.`);
 
-    // Soniox owns the idle microphone. Release it explicitly before ElevenLabs
-    // creates its WebRTC/audio session so iOS never has two live STT pipelines.
-    try { await wake.stop({ immediate: true }); } catch (_) {}
-    await wait(AUDIO_HANDOFF_DELAY_MS);
-    if (generation !== activationGenerationRef.current) return;
+    // Keep Soniox running during the handoff. This avoids tearing down and
+    // recreating the iOS microphone route while VoiceOver is finishing its
+    // announcement. Once ElevenLabs is active, Soniox ignores wake phrases
+    // and listens only for an explicit stop/bye Finch command.
 
-    if (source === 'button' && looksLikeAssistiveActivation(event)) {
+    if (source === 'button') {
+      // Always give the button announcement a clean lane before ElevenLabs opens
+      // its WebRTC audio session. Web Safari does not expose reliable VoiceOver
+      // detection, so a predictable, tunable delay is safer than a heuristic.
       await wait(VOICEOVER_HANDOFF_DELAY_MS);
       if (generation !== activationGenerationRef.current) return;
     }
@@ -534,7 +575,7 @@ function App() {
 
   const wake = useFinchWakeWord({
     enabled: SONIOX_WAKE_ENABLED,
-    suspended: conversationLockActive,
+    conversationActive: conversationLockActive,
     onWake: async () => {
       await startConversation(currentContextRef.current || GENERAL_CONTEXT, { source: 'wake' });
     },
@@ -552,45 +593,74 @@ function App() {
   useConversationClientTool('focusRestaurant', async ({ restaurantId }) => {
     const restaurant = getRestaurant(restaurantId);
     if (!restaurant) return `Restaurant ${restaurantId} was not found.`;
+
     const next = { type: 'restaurant', restaurantId };
-    setResultRestaurantIds((current) => current.includes(restaurantId) ? current : [...current, restaurantId]);
-    setResultTitle('Restaurants');
-    setView('results');
+    const nextResultIds = resultRestaurantIds.includes(restaurantId)
+      ? resultRestaurantIds
+      : [...resultRestaurantIds, restaurantId];
+    const nextTitle = view === 'results' && resultTitle ? resultTitle : 'Restaurants';
+
+    setResultRestaurantIds(nextResultIds);
+    setResultTitle(nextTitle);
     setSelectedRestaurantId(null);
+    setView('results');
     setContext(next);
     activeCharacterRef.current = next;
     setActiveCharacter(next);
-    await scrollToContextAndWait(next);
-    return `Moved to ${restaurant.name}. The active character is now ${restaurant.name}.`;
+
+    const moved = await scrollToContextAndWait(next, { settleMs: 460 });
+    pushContextUpdate(next, {
+      view: 'results',
+      selectedRestaurantId: null,
+      resultTitle: nextTitle,
+      resultRestaurantIds: nextResultIds,
+    });
+    await focusConversationControlForContext(next);
+    return moved
+      ? `Moved to ${restaurant.name}. ${restaurant.name} is now the active conversational context.`
+      : `${restaurant.name} is now the active conversational context.`;
   });
 
   useConversationClientTool('openRestaurant', async ({ restaurantId }) => {
     const restaurant = getRestaurant(restaurantId);
     if (!restaurant) return `Restaurant ${restaurantId} was not found.`;
+
     const next = { type: 'restaurant', restaurantId };
     setSelectedRestaurantId(restaurantId);
     setMenuFilter('featured');
     setView('restaurant');
     setContext(next);
-    // Opening a restaurant makes that restaurant the conversational context,
-    // even if the request originated from neutral Finch.
     activeCharacterRef.current = next;
     setActiveCharacter(next);
-    await scrollToContextAndWait(next, { settleMs: 360 });
-    return `Opened ${restaurant.name}'s menu.`;
+
+    const moved = await scrollToContextAndWait(next, { settleMs: 480 });
+    pushContextUpdate(next, { view: 'restaurant', selectedRestaurantId: restaurantId });
+    await focusConversationControlForContext(next);
+    return moved
+      ? `Opened ${restaurant.name}'s menu. ${restaurant.name} is now the active conversational context.`
+      : `Opened ${restaurant.name}'s menu.`;
   });
 
   useConversationClientTool('focusMenuItem', async ({ itemId }) => {
     const item = getMenuItem(itemId);
     if (!item) return `Menu item ${itemId} was not found.`;
+
     const next = { type: 'menu', restaurantId: item.restaurantId, itemId };
     setSelectedRestaurantId(item.restaurantId);
+    // Always reveal the complete menu before moving to a dish. A prior visual
+    // filter can otherwise keep the requested item out of the DOM entirely.
+    setMenuFilter('featured');
     setView('restaurant');
     setContext(next);
     activeCharacterRef.current = next;
     setActiveCharacter(next);
-    await scrollToContextAndWait(next);
-    return `Moved to ${item.name}. The active character is now ${item.name}.`;
+
+    const moved = await scrollToContextAndWait(next, { settleMs: 480 });
+    pushContextUpdate(next, { view: 'restaurant', selectedRestaurantId: item.restaurantId });
+    await focusConversationControlForContext(next);
+    return moved
+      ? `Moved to ${item.name}. ${item.name} is now the active conversational context.`
+      : `${item.name} is now the active conversational context.`;
   });
 
   useConversationClientTool('addCartItem', ({ itemId, quantity = 1 }) => {
@@ -620,19 +690,43 @@ function App() {
     setContext(next);
     activeCharacterRef.current = next;
     setActiveCharacter(next);
-    await scrollToContextAndWait(next, { settleMs: 320 });
-    return `Opened the cart with ${cartCount} items.`;
+    const moved = await scrollToContextAndWait(next, { settleMs: 360 });
+    pushContextUpdate(next, { view: 'cart' });
+    await focusConversationControlForContext(next);
+    return moved ? `Opened the cart with ${cartCount} items.` : `The cart has ${cartCount} items.`;
   });
 
   useConversationClientTool('goBack', async () => {
+    let nextView = 'home';
+    let nextSelectedId = null;
+    let nextContext = GENERAL_CONTEXT;
+
+    if (view === 'restaurant') {
+      nextView = 'results';
+      nextSelectedId = null;
+    } else if (view === 'cart' && selectedRestaurantId) {
+      nextView = 'restaurant';
+      nextSelectedId = selectedRestaurantId;
+      nextContext = { type: 'restaurant', restaurantId: selectedRestaurantId };
+    }
+
     navigateBack({ keepConversation: true });
-    activeCharacterRef.current = GENERAL_CONTEXT;
-    setActiveCharacter(GENERAL_CONTEXT);
-    setContext(GENERAL_CONTEXT);
-    // Give React and the page transition a moment to settle before the agent
-    // continues. General navigation intentionally stays in neutral Finch mode.
-    await wait(320);
-    return 'Went back one screen. Continue as neutral Finch.';
+    activeCharacterRef.current = nextContext;
+    setActiveCharacter(nextContext);
+    setContext(nextContext);
+
+    await wait(380);
+    if (nextContext.type !== 'general') await scrollToContextAndWait(nextContext, { settleMs: 280 });
+    pushContextUpdate(nextContext, {
+      view: nextView,
+      selectedRestaurantId: nextSelectedId,
+      resultTitle,
+      resultRestaurantIds,
+    });
+    await focusConversationControlForContext(nextContext);
+    return nextContext.type === 'general'
+      ? 'Went back one screen. Continue as neutral Finch with the new screen context.'
+      : `Went back to ${getContextName(nextContext)}.`;
   });
 
   function openCategory(name) {
@@ -722,7 +816,7 @@ function App() {
   const restaurantMenuSections = buildMenuSections(selectedRestaurant, menuFilter);
   const filteredMenuCount = restaurantMenuSections.reduce((sum, section) => sum + section.items.length, 0);
   const headerTitle = view === 'results' ? resultTitle : view === 'cart' ? 'Cart' : '';
-  const headerContextName = getContextName(currentContext);
+  const headerContextName = getContextName(currentContext) || (view === 'results' ? resultTitle : view === 'cart' ? 'your cart' : '');
 
   return (
     <div className={`app-shell ${conversationLockActive ? 'conversation-lock-active' : ''}`}>
@@ -753,17 +847,17 @@ function App() {
           setContext(GENERAL_CONTEXT);
         }}
       >
-        <main id="main-content" tabIndex="-1">
+        <div id="main-content">
           {view === 'home' && (
             <>
-              <section className="welcome-section" id="home-top" aria-labelledby="welcome-heading">
+              <div className="welcome-section" id="home-top">
                 <div className="section-heading-row welcome-heading-row">
-                  <h1 id="welcome-heading">Hello Weekend!</h1>
+                  <h1 role="presentation" id="welcome-heading">Hello Weekend!</h1>
                   <button className="section-icon-button" type="button" onClick={() => scrollToElement(`home-section-${homeSections[0]?.id}`)} aria-label="Skip to National Favorites">
                     <Icon name="arrowDown" />
                   </button>
                 </div>
-                <div className="category-grid" aria-label="Food categories">
+                <div className="category-grid">
                   {categories.map((category) => (
                     <button key={category.name} className="category-card" onClick={() => openCategory(category.name)}>
                       <span className="category-icon-wrap" aria-hidden="true">
@@ -782,12 +876,12 @@ function App() {
                     </button>
                   ))}
                 </div>
-              </section>
+              </div>
 
               {homeSections.map((section, index) => (
-                <section className="home-section" id={`home-section-${section.id}`} key={section.id} aria-labelledby={`section-${section.id}`}>
+                <div className="home-section" id={`home-section-${section.id}`} key={section.id}>
                   <div className="section-heading-row">
-                    <h2 id={`section-${section.id}`}>{section.title}</h2>
+                    <h2 role="presentation" id={`section-${section.id}`}>{section.title}</h2>
                     <div className="section-actions">
                       {index < homeSections.length - 1 && (
                         <button className="section-icon-button" type="button" onClick={() => scrollToNextHomeSection(index)} aria-label={`Skip to ${homeSections[index + 1].title}`}>
@@ -799,7 +893,7 @@ function App() {
                       </button>
                     </div>
                   </div>
-                  <div className="home-restaurant-strip" aria-label={section.title}>
+                  <div className="home-restaurant-strip">
                     {section.restaurantIds.map((id) => {
                       const restaurant = getRestaurant(id);
                       const active = activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === id;
@@ -811,17 +905,18 @@ function App() {
                           onOpen={() => openRestaurant(id)}
                           onContext={() => setContext({ type: 'restaurant', restaurantId: id })}
                           active={active}
+                          talking={active && isSpeaking}
                         />
                       );
                     })}
                   </div>
-                </section>
+                </div>
               ))}
             </>
           )}
 
           {view === 'results' && (
-            <section className="results-section">
+            <div className="results-section">
               <div className="restaurant-list">
                 {resultRestaurantIds.map((id) => {
                   const restaurant = getRestaurant(id);
@@ -834,39 +929,44 @@ function App() {
                       onOpen={() => openRestaurant(id)}
                       onContext={() => setContext({ type: 'restaurant', restaurantId: id })}
                       active={active}
+                      talking={active && isSpeaking}
                     />
                   );
                 })}
               </div>
-            </section>
+            </div>
           )}
 
           {view === 'restaurant' && selectedRestaurant && (
-            <section className="restaurant-page">
+            <div className="restaurant-page">
               <div
                 className={`restaurant-hero-fullbleed ${activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id ? 'conversation-active-card' : ''}`}
                 data-finch-restaurant-detail={selectedRestaurant.id}
                 data-finch-target="restaurant"
                 tabIndex={0}
-                role="group"
                 aria-label={`${selectedRestaurant.name}. ${selectedRestaurant.rating} stars. ${selectedRestaurant.distance} miles away. ${selectedRestaurant.eta}. ${selectedRestaurant.summary}`}
                 onFocus={() => setContext({ type: 'restaurant', restaurantId: selectedRestaurant.id })}
                 onPointerDown={() => setContext({ type: 'restaurant', restaurantId: selectedRestaurant.id })}
               >
                 <img src={selectedRestaurant.image} alt="" className="restaurant-hero-image" aria-hidden="true" />
                 <div className="restaurant-hero-shade" aria-hidden="true" />
+                {activeCharacter?.type === 'restaurant' && activeCharacter.restaurantId === selectedRestaurant.id && isSpeaking && (
+                  <div className="context-character-overlay context-character-overlay-hero" aria-hidden="true">
+                    <CharacterFace expression={selectedRestaurant.character.expression} talking label={selectedRestaurant.name} />
+                  </div>
+                )}
                 <div className="hero-restaurant-copy" aria-hidden="true">
                   <div>
-                    <h1 id="restaurant-title">{selectedRestaurant.name}</h1>
+                    <h1 role="presentation" id="restaurant-title">{selectedRestaurant.name}</h1>
                     <p>{selectedRestaurant.priceLevel} · {selectedRestaurant.categories.join(' · ')} · {selectedRestaurant.distance} mi · Pricing &amp; fees</p>
                   </div>
                 </div>
               </div>
 
               <div className="restaurant-content">
-                <section className="service-card" aria-label="Delivery options">
+                <div className="service-card">
                   <div className="service-top-row">
-                    <div className="segmented-control" aria-label="Fulfillment method">
+                    <div className="segmented-control">
                       <button type="button" className="selected">Delivery</button>
                       <button type="button">Pickup</button>
                     </div>
@@ -877,27 +977,27 @@ function App() {
                     <div className="service-eta"><strong>{selectedRestaurant.eta.split('–')[0]} min</strong><span>delivery time</span></div>
                     <button className="section-icon-button" aria-label="Change delivery time"><Icon name="chevronDown" /></button>
                   </div>
-                </section>
+                </div>
 
-                <section className="restaurant-block deals-section" aria-labelledby="deals-title">
+                <div className="restaurant-block deals-section">
                   <div className="section-heading-row">
-                    <h2 id="deals-title">Deals &amp; benefits</h2>
+                    <h2 role="presentation" id="deals-title">Deals &amp; benefits</h2>
                     <button className="section-icon-button" type="button" aria-label="View all deals"><Icon name="arrowRight" /></button>
                   </div>
-                  <div className="deal-card-row" aria-label="Restaurant deals">
+                  <div className="deal-card-row">
                     {(selectedRestaurant.deals || []).map((deal, index) => (
-                      <article className="benefit-card" key={`${deal.title}-${index}`}>
+                      <div className="benefit-card" key={`${deal.title}-${index}`}>
                         <Icon name="tag" size={30} />
                         <div><strong>{deal.title}</strong><span>{deal.subtitle}</span></div>
                         <button type="button">{deal.cta || 'See items'}</button>
-                      </article>
+                      </div>
                     ))}
                   </div>
-                </section>
+                </div>
 
-                <section className="restaurant-block discovery-section" aria-labelledby="discovery-title">
-                  <h2 id="discovery-title">What can we help you find?</h2>
-                  <div className="filter-chip-row" aria-label="Menu filters">
+                <div className="restaurant-block discovery-section">
+                  <h2 role="presentation" id="discovery-title">What can we help you find?</h2>
+                  <div className="filter-chip-row">
                     {DISCOVERY_FILTERS.map((filter) => {
                       const count = filter.id === 'featured'
                         ? selectedRestaurant.menu.length
@@ -919,12 +1019,12 @@ function App() {
                       );
                     })}
                   </div>
-                </section>
+                </div>
 
-                <section className="restaurant-block reviews-section" id="reviews-section" aria-labelledby="reviews-title">
+                <div className="restaurant-block reviews-section" id="reviews-section">
                   <div className="section-heading-row">
                     <div>
-                      <h2 id="reviews-title">Reviews</h2>
+                      <h2 role="presentation" id="reviews-title">Reviews</h2>
                       <p>{selectedRestaurant.reviews} ratings · 50+ public reviews</p>
                     </div>
                     <button className="soft-button" type="button">Add review</button>
@@ -932,14 +1032,14 @@ function App() {
                   <div className="review-highlight-card">
                     <div className="rating-orb"><strong>{selectedRestaurant.rating}</strong><Icon name="star" size={18} /></div>
                     <div>
-                      <h3>✦ Review highlights</h3>
+                      <h3 role="presentation">✦ Review highlights</h3>
                       <p>{selectedRestaurant.reviewHighlight}</p>
                       <span>AI-generated based on reviews</span>
                     </div>
                   </div>
-                </section>
+                </div>
 
-                <nav className="restaurant-menu-nav" id="restaurant-menu-nav" aria-label="Menu categories">
+                <div className="restaurant-menu-nav" id="restaurant-menu-nav">
                   <div className="menu-nav-tools" aria-hidden="true">
                     <span className="menu-nav-icon"><Icon name="menu" size={27} /></span>
                     <span className="menu-nav-icon"><Icon name="search" size={25} /></span>
@@ -949,19 +1049,19 @@ function App() {
                       <button type="button" className={index === 0 ? 'selected' : ''} key={section.id} onClick={() => scrollToElement(`menu-section-${section.id}`)}>{section.title}</button>
                     ))}
                   </div>
-                </nav>
+                </div>
 
                 {filteredMenuCount === 0 && (
-                  <section className="restaurant-block empty-filter-state">
-                    <h2>No exact matches</h2>
+                  <div className="restaurant-block empty-filter-state">
+                    <h2 role="presentation">No exact matches</h2>
                     <p>Try another filter to browse the rest of the menu.</p>
                     <button type="button" className="soft-button" onClick={() => setMenuFilter('featured')}>Show full menu</button>
-                  </section>
+                  </div>
                 )}
 
                 {restaurantMenuSections.map((section, sectionIndex) => (
-                  <section className="menu-section restaurant-block" id={`menu-section-${section.id}`} key={section.id} aria-labelledby={`menu-heading-${section.id}`}>
-                    <h2 id={`menu-heading-${section.id}`}>{section.title}</h2>
+                  <div className="menu-section restaurant-block" id={`menu-section-${section.id}`} key={section.id}>
+                    <h2 role="presentation" id={`menu-heading-${section.id}`}>{section.title}</h2>
                     {sectionIndex === 0 && menuFilter !== 'featured' && <p className="section-help">Showing {filteredMenuCount} items tagged “{DISCOVERY_FILTERS.find((filter) => filter.id === menuFilter)?.label}”.</p>}
                     {sectionIndex === 0 && menuFilter === 'featured' && <p className="section-help">Move through dishes one at a time, then use Finch in the top bar whenever you want to ask about the focused item.</p>}
                     <div className="menu-grid">
@@ -976,35 +1076,42 @@ function App() {
                             onAdd={() => addItem(item.id)}
                             onContext={() => setContext({ type: 'menu', restaurantId: selectedRestaurant.id, itemId: item.id })}
                             active={active}
+                            talking={active && isSpeaking}
                           />
                         );
                       })}
                     </div>
-                  </section>
+                  </div>
                 ))}
               </div>
-            </section>
+            </div>
           )}
 
           {view === 'cart' && (
-            <section className="cart-page" aria-labelledby="cart-title" tabIndex={-1}>
-              <h1 className="sr-only" id="cart-title">Cart</h1>
+            <div className="cart-page" tabIndex={-1}>
+              <h1 role="presentation" className="sr-only" id="cart-title">Cart</h1>
               {!cartItems.length ? <p className="empty-state">Your cart is empty.</p> : (
                 <>
                   <div className="cart-list">
                     {cartItems.map((item) => (
-                      <article
+                      <div
                         className={`cart-item cart-item-focus-target ${activeCharacter?.type === 'menu' && activeCharacter.itemId === item.id ? 'conversation-active-card' : ''}`}
                         key={item.id}
                         id={`cart-${item.id}`}
                         tabIndex={0}
-                        role="group"
                         data-finch-target="menu"
-                        aria-label={`${item.name}. ${item.restaurantName}. $${item.price.toFixed(2)}. Quantity ${item.quantity}.`}
+                        aria-label={`${item.name}. ${item.restaurantName}. ${item.price.toFixed(2)} dollars. Quantity ${item.quantity}.`}
                         onFocus={() => setContext({ type: 'menu', restaurantId: item.restaurantId, itemId: item.id })}
                         onPointerDown={() => setContext({ type: 'menu', restaurantId: item.restaurantId, itemId: item.id })}
                       >
-                        <div className="cart-thumb-wrap" aria-hidden="true"><img src={item.image} alt="" /></div>
+                        <div className="cart-thumb-wrap" aria-hidden="true">
+                          <img src={item.image} alt="" />
+                          {activeCharacter?.type === 'menu' && activeCharacter.itemId === item.id && isSpeaking && (
+                            <div className="context-character-overlay context-character-overlay-cart">
+                              <CharacterFace expression={item.character.expression} talking label={item.name} />
+                            </div>
+                          )}
+                        </div>
                         <div className="cart-item-copy" aria-hidden="true">
                           <strong>{item.name}</strong><span>{item.restaurantName}</span><span>${item.price.toFixed(2)}</span>
                         </div>
@@ -1013,24 +1120,23 @@ function App() {
                           <span>{item.quantity}</span>
                           <button tabIndex={-1} onClick={() => setQuantity(item.id, item.quantity + 1)}>+</button>
                         </div>
-                      </article>
+                      </div>
                     ))}
                   </div>
                   <div className="cart-total"><span>Total</span><strong>${cartTotal.toFixed(2)}</strong></div>
                   <button className="primary-button">Continue</button>
                 </>
               )}
-            </section>
+            </div>
           )}
-        </main>
+        </div>
 
         {(view === 'home' || view === 'results') && (
           <div className="search-dock">
-            <form className="bottom-search" onSubmit={submitSearch} role="search">
+            <form className="bottom-search" onSubmit={submitSearch}>
               <label className="sr-only" htmlFor="restaurant-search">Search restaurants or cuisines</label>
               <Icon name="search" size={28} />
-              <input id="restaurant-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search restaurants or cuisines" />
-              <button type="submit" aria-label="Search"><Icon name="sparkle" size={19} /><span>Ask</span></button>
+              <input id="restaurant-search" type="search" enterKeyHint="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search restaurants or cuisines" />
             </form>
           </div>
         )}

@@ -21,7 +21,7 @@ export default function UnifiedHeader({
   const finchSurface = isHome ? 'round' : 'plain';
 
   return (
-    <header className={`top-header unified-header ${isHome ? 'home-header' : 'subpage-header'}`}>
+    <div className={`top-header unified-header ${isHome ? 'home-header' : 'subpage-header'}`}>
       <div className="unified-header-row">
         <div className="unified-header-left" aria-hidden={controlsHidden ? 'true' : undefined} onFocusCapture={onGeneralFocus}>
           {isHome ? (
@@ -69,6 +69,6 @@ export default function UnifiedHeader({
           />
         </div>
       </div>
-    </header>
+    </div>
   );
 }
