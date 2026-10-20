@@ -185,15 +185,68 @@ function App() {
     return null;
   }
 
+  function getConversationTargetElement(character = activeCharacterRef.current) {
+    if (!character) return null;
+    if (character.type === 'restaurant') {
+      if (view === 'restaurant' && selectedRestaurantId === character.restaurantId) {
+        return document.querySelector('.restaurant-hero-fullbleed');
+      }
+      return document.getElementById(`restaurant-${character.restaurantId}`);
+    }
+    if (character.type === 'menu') return document.getElementById(`menu-${character.itemId}`);
+    if (character.type === 'cart') return document.querySelector('.talk-cart-button');
+    return null;
+  }
+
   function refreshConversationButtonRect(character = activeCharacterRef.current) {
     const selector = getConversationButtonSelector(character);
-    if (!selector) return;
-    window.requestAnimationFrame(() => {
-      const el = document.querySelector(selector);
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      setConversationButtonRect({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
-    });
+    if (!selector) return false;
+    const el = document.querySelector(selector);
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    setConversationButtonRect({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+    return true;
+  }
+
+  function focusConversationProxy() {
+    try { voiceOverProxyRef.current?.focus({ preventScroll: true }); } catch (_) {}
+  }
+
+  // When the active character changes while the page is locked, move the
+  // *page* to that entity first, then move VoiceOver focus to the matching
+  // external conversation control. This keeps the visual context and the
+  // accessibility focus pointing at the same restaurant/product.
+  function alignLockedConversationToCharacter(character = activeCharacterRef.current) {
+    if (!screenReaderConversationModeRef.current || !character) return;
+
+    const attempt = () => {
+      const target = getConversationTargetElement(character);
+      if (!target) return false;
+
+      // User scrolling stays blocked, but a deliberate programmatic jump is
+      // allowed when Finch itself changes the active restaurant/product.
+      target.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
+
+      window.requestAnimationFrame(() => {
+        refreshConversationButtonRect(character);
+        window.requestAnimationFrame(focusConversationProxy);
+      });
+      return true;
+    };
+
+    // React may still be committing the new list/detail view when the client
+    // tool resolves, so retry briefly instead of leaving focus on Back.
+    if (!attempt()) {
+      window.setTimeout(attempt, 70);
+      window.setTimeout(attempt, 180);
+    } else {
+      // iOS VoiceOver occasionally ignores the first DOM focus immediately
+      // after a scroll. A second focus is harmless and makes the handoff stable.
+      window.setTimeout(() => {
+        refreshConversationButtonRect(character);
+        focusConversationProxy();
+      }, 120);
+    }
   }
 
   // Screen-reader conversation mode is intentionally modal: the visible page
@@ -215,9 +268,10 @@ function App() {
 
     // Put focus on the external live control before hiding the app subtree.
     const focusTimer = window.setTimeout(() => {
-      try { voiceOverProxyRef.current?.focus({ preventScroll: true }); } catch (_) {}
+      focusConversationProxy();
       shell.setAttribute('aria-hidden', 'true');
       shell.inert = true;
+      alignLockedConversationToCharacter(activeCharacterRef.current);
     }, 40);
 
     const preventScroll = (event) => event.preventDefault();
@@ -240,8 +294,7 @@ function App() {
   useLayoutEffect(() => {
     if (!conversationLockActive) return undefined;
     const timer = window.setTimeout(() => {
-      refreshConversationButtonRect();
-      try { voiceOverProxyRef.current?.focus({ preventScroll: true }); } catch (_) {}
+      alignLockedConversationToCharacter(activeCharacterRef.current);
     }, 70);
     return () => window.clearTimeout(timer);
   }, [conversationLockActive, activeCharacter, view, selectedRestaurantId, conversationAnnouncementNonce]);
@@ -451,7 +504,7 @@ function App() {
     }
 
     setConversationAnnouncementNonce((value) => value + 1);
-    refreshConversationButtonRect(character);
+    alignLockedConversationToCharacter(character);
     await wait(VOICEOVER_HANDOFF_DELAY_MS);
 
     if (muteExistingSession && conversation.status === 'connected' && !wasMuted) {
@@ -590,11 +643,16 @@ function App() {
     if (!restaurant) return `Restaurant ${restaurantId} was not found.`;
     const nextCharacter = { type: 'restaurant', restaurantId };
     setResultTitle('Recommended restaurant');
-    setResultRestaurantIds([restaurantId, ...restaurants.filter((r) => r.id !== restaurantId).slice(0, 4).map((r) => r.id)]);
+    // Keep the existing list order whenever possible. Reordering the selected
+    // restaurant to the top made the visual page and VoiceOver focus feel like
+    // they jumped to two different places. If it is not in the current list,
+    // append it and then scroll directly to that card.
+    setResultRestaurantIds((current) => current.includes(restaurantId) ? current : [...current, restaurantId]);
     setView('results');
     setPendingFocusId(`restaurant-${restaurantId}`);
     setActiveCharacter(nextCharacter);
     if (screenReaderConversationModeRef.current) {
+      window.setTimeout(() => alignLockedConversationToCharacter(nextCharacter), 60);
       await waitForScreenReaderHandoff(nextCharacter, { muteExistingSession: true });
     }
     return `Focused ${restaurant.name}. Continue speaking as ${restaurant.name}.`;
@@ -619,6 +677,7 @@ function App() {
     setPendingFocusId(`menu-${itemId}`);
     setActiveCharacter(nextCharacter);
     if (screenReaderConversationModeRef.current) {
+      window.setTimeout(() => alignLockedConversationToCharacter(nextCharacter), 60);
       await waitForScreenReaderHandoff(nextCharacter, { muteExistingSession: true });
     }
     return `Focused ${item.name}. Continue speaking as ${item.name}.`;
@@ -1047,17 +1106,6 @@ function App() {
       <>
         <div className="conversation-lock-scrim" aria-hidden="true" />
         <div className="conversation-lock-controls">
-          {view !== 'home' && (
-            <button
-              type="button"
-              className="conversation-lock-back"
-              aria-label="Go back and end conversation"
-              onFocus={handleConversationControlFocus}
-              onClick={goBack}
-            >
-              <Icon name="back" size={30} strokeWidth={2.35} />
-            </button>
-          )}
           <button
             ref={voiceOverProxyRef}
             type="button"
@@ -1074,6 +1122,17 @@ function App() {
           >
             <CharacterFace small expression={activeEntity.character?.expression || 'friendly'} talking={isSpeaking} />
           </button>
+          {view !== 'home' && (
+            <button
+              type="button"
+              className="conversation-lock-back"
+              aria-label="Go back and end conversation"
+              onFocus={handleConversationControlFocus}
+              onClick={goBack}
+            >
+              <Icon name="back" size={30} strokeWidth={2.35} />
+            </button>
+          )}
         </div>
       </>
     )}
