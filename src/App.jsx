@@ -7,6 +7,7 @@ import UnifiedHeader from './components/UnifiedHeader.jsx';
 import Icon from './components/Icon.jsx';
 import CharacterFace from './components/CharacterFace.jsx';
 import useFinchWakeWord, { isFinchStopPhrase } from './hooks/useFinchWakeWord.js';
+import { playFinchCloseCue, playFinchOpenCue, primeFinchAudioCues, startFinchWaitingCue, stopFinchWaitingCue } from './audioFinchCues.js';
 
 const AGENT_MODE = import.meta.env.VITE_AGENT_MODE || 'demo';
 const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || '';
@@ -162,6 +163,10 @@ function App() {
     ...(ELEVENLABS_SPEECH_SPEED >= 0.7 && ELEVENLABS_SPEECH_SPEED <= 1.2
       ? { overrides: { tts: { speed: ELEVENLABS_SPEECH_SPEED } } }
       : {}),
+    onConnect: () => {
+      stopFinchWaitingCue();
+      console.debug('[FINCH AUDIO] ElevenLabs connected; waiting cue stopped');
+    },
     onMessage: (message) => {
       const text = normalizeMessage(message);
       const source = getMessageSource(message);
@@ -179,12 +184,14 @@ function App() {
       }
     },
     onDisconnect: (details) => {
+      stopFinchWaitingCue();
       console.warn('[FINCH DISCONNECT] ElevenLabs session disconnected', details || {});
       activationGenerationRef.current += 1;
       setAgentStatus('Conversation ended.');
       finishConversationState({ restoreFocus: true });
     },
     onError: (error) => {
+      stopFinchWaitingCue();
       console.error(error);
       activationGenerationRef.current += 1;
       setAgentStatus('Voice conversation error. Finch is ready to try again.');
@@ -224,7 +231,8 @@ function App() {
       return document.querySelector(`[data-finch-restaurant-detail="${CSS.escape(context.restaurantId)}"]`);
     }
     if (context.type === 'menu') {
-      return document.getElementById(`menu-${context.itemId}`) || document.getElementById(`cart-${context.itemId}`);
+      return document.getElementById(`menu-${context.itemId}`)
+        || document.querySelector(`#cart-${CSS.escape(context.itemId)} .cart-item-select`);
     }
     if (context.type === 'cart') return document.querySelector('.cart-page');
     return null;
@@ -259,6 +267,7 @@ function App() {
   }
 
   function finishConversationState({ restoreFocus = true } = {}) {
+    stopFinchWaitingCue();
     const restoreContext = currentContextRef.current;
     setActiveCharacter(null);
     activeCharacterRef.current = null;
@@ -497,6 +506,7 @@ function App() {
       }
 
       const dynamicVariables = { character_intro: getInitialCharacterIntro(character) };
+      startFinchWaitingCue({ delayMs: 380 });
       if (USE_SIGNED_URL) {
         const response = await fetch('/api/elevenlabs-signed-url');
         if (!response.ok) throw new Error('Could not get ElevenLabs signed URL');
@@ -505,7 +515,9 @@ function App() {
       } else {
         await conversation.startSession({ agentId: AGENT_ID, dynamicVariables });
       }
+      stopFinchWaitingCue();
     } catch (error) {
+      stopFinchWaitingCue();
       console.error(error);
       finishConversationState({ restoreFocus: true });
       setAgentStatus('Could not start Finch. Check microphone permission and ElevenLabs setup.');
@@ -573,6 +585,7 @@ function App() {
     }
 
     endingConversationRef.current = true;
+    stopFinchWaitingCue();
     console.warn('[FINCH END] requested', {
       reason,
       status: conversation.status,
@@ -597,10 +610,12 @@ function App() {
     conversationActive: conversationLockActive,
     onWake: async (transcript) => {
       console.warn('[FINCH BEGIN] Soniox wake accepted', { transcript });
+      void playFinchOpenCue();
       await startConversation(currentContextRef.current || GENERAL_CONTEXT, { source: 'wake' });
     },
     onStop: async (transcript) => {
       console.warn('[FINCH END] Soniox stop accepted', { transcript });
+      void playFinchCloseCue();
       if (activeCharacterRef.current) await endCharacter({ reason: 'soniox-stop' });
     },
   });
@@ -850,7 +865,12 @@ function App() {
   const headerContextName = getContextName(currentContext) || (view === 'results' ? resultTitle : view === 'cart' ? 'your cart' : '');
 
   return (
-    <div className={`app-shell ${conversationLockActive ? 'conversation-lock-active' : ''}`}>
+    <div
+      className={`app-shell ${conversationLockActive ? 'conversation-lock-active' : ''}`}
+      onPointerDownCapture={primeFinchAudioCues}
+      onClickCapture={primeFinchAudioCues}
+      onKeyDownCapture={primeFinchAudioCues}
+    >
       <UnifiedHeader
         view={view}
         title={headerTitle}
@@ -1052,24 +1072,6 @@ function App() {
                   </div>
                 </div>
 
-                <div className="restaurant-block reviews-section" id="reviews-section">
-                  <div className="section-heading-row">
-                    <div>
-                      <h2 role="presentation" id="reviews-title">Reviews</h2>
-                      <p>{selectedRestaurant.reviews} ratings · 50+ public reviews</p>
-                    </div>
-                    <button className="soft-button" type="button">Add review</button>
-                  </div>
-                  <div className="review-highlight-card">
-                    <div className="rating-orb"><strong>{selectedRestaurant.rating}</strong><Icon name="star" size={18} /></div>
-                    <div>
-                      <h3 role="presentation">✦ Review highlights</h3>
-                      <p>{selectedRestaurant.reviewHighlight}</p>
-                      <span>AI-generated based on reviews</span>
-                    </div>
-                  </div>
-                </div>
-
                 <div className="restaurant-menu-nav" id="restaurant-menu-nav">
                   <div className="menu-nav-tools" aria-hidden="true">
                     <span className="menu-nav-icon"><Icon name="menu" size={27} /></span>
@@ -1114,6 +1116,24 @@ function App() {
                     </div>
                   </div>
                 ))}
+
+                <div className="restaurant-block reviews-section" id="reviews-section">
+                  <div className="section-heading-row">
+                    <div>
+                      <h2 role="presentation" id="reviews-title">Reviews</h2>
+                      <p>{selectedRestaurant.reviews} ratings · 50+ public reviews</p>
+                    </div>
+                    <button className="soft-button" type="button">Add review</button>
+                  </div>
+                  <div className="review-highlight-card">
+                    <div className="rating-orb"><strong>{selectedRestaurant.rating}</strong><Icon name="star" size={18} /></div>
+                    <div>
+                      <h3 role="presentation">✦ Review highlights</h3>
+                      <p>{selectedRestaurant.reviewHighlight}</p>
+                      <span>AI-generated based on reviews</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -1124,35 +1144,52 @@ function App() {
               {!cartItems.length ? <p className="empty-state">Your cart is empty.</p> : (
                 <>
                   <div className="cart-list">
-                    {cartItems.map((item) => (
-                      <div
-                        className={`cart-item cart-item-focus-target ${activeCharacter?.type === 'menu' && activeCharacter.itemId === item.id ? 'conversation-active-card' : ''}`}
-                        key={item.id}
-                        id={`cart-${item.id}`}
-                        tabIndex={0}
-                        data-finch-target="menu"
-                        aria-label={`${item.name}. ${item.restaurantName}. ${item.price.toFixed(2)} dollars. Quantity ${item.quantity}.`}
-                        onFocus={() => setContext({ type: 'menu', restaurantId: item.restaurantId, itemId: item.id })}
-                        onPointerDown={() => setContext({ type: 'menu', restaurantId: item.restaurantId, itemId: item.id })}
-                      >
-                        <div className="cart-thumb-wrap" aria-hidden="true">
-                          <img src={item.image} alt="" />
-                          {activeCharacter?.type === 'menu' && activeCharacter.itemId === item.id && isSpeaking && (
-                            <div className="context-character-overlay context-character-overlay-cart">
-                              <CharacterFace expression={item.character.expression} talking label={item.name} />
-                            </div>
-                          )}
+                    {cartItems.map((item) => {
+                      const selectItemContext = () => setContext({ type: 'menu', restaurantId: item.restaurantId, itemId: item.id });
+                      const active = activeCharacter?.type === 'menu' && activeCharacter.itemId === item.id;
+                      return (
+                        <div
+                          className={`cart-item ${active ? 'conversation-active-card' : ''}`}
+                          key={item.id}
+                          id={`cart-${item.id}`}
+                          data-finch-target="menu"
+                          onFocusCapture={selectItemContext}
+                          onPointerDownCapture={selectItemContext}
+                        >
+                          <button
+                            type="button"
+                            className="cart-item-select cart-item-focus-target"
+                            aria-label={`${item.name}. ${item.restaurantName}. ${item.price.toFixed(2)} dollars. Quantity ${item.quantity}.`}
+                            onClick={selectItemContext}
+                          >
+                            <span className="cart-thumb-wrap" aria-hidden="true">
+                              <img src={item.image} alt="" />
+                              {active && isSpeaking && (
+                                <span className="context-character-overlay context-character-overlay-cart">
+                                  <CharacterFace expression={item.character.expression} talking label={item.name} />
+                                </span>
+                              )}
+                            </span>
+                            <span className="cart-item-copy" aria-hidden="true">
+                              <strong>{item.name}</strong><span>{item.restaurantName}</span><span>${item.price.toFixed(2)}</span>
+                            </span>
+                          </button>
+                          <div className="quantity-control">
+                            <button
+                              type="button"
+                              aria-label={`Decrease ${item.name} quantity. Current quantity ${item.quantity}.`}
+                              onClick={() => setQuantity(item.id, item.quantity - 1, { source: 'cart-minus' })}
+                            >−</button>
+                            <span aria-hidden="true">{item.quantity}</span>
+                            <button
+                              type="button"
+                              aria-label={`Increase ${item.name} quantity. Current quantity ${item.quantity}.`}
+                              onClick={() => setQuantity(item.id, item.quantity + 1, { source: 'cart-plus' })}
+                            >+</button>
+                          </div>
                         </div>
-                        <div className="cart-item-copy" aria-hidden="true">
-                          <strong>{item.name}</strong><span>{item.restaurantName}</span><span>${item.price.toFixed(2)}</span>
-                        </div>
-                        <div className="quantity-control" aria-hidden="true">
-                          <button tabIndex={-1} onClick={() => setQuantity(item.id, item.quantity - 1, { source: 'cart-minus' })}>−</button>
-                          <span>{item.quantity}</span>
-                          <button tabIndex={-1} onClick={() => setQuantity(item.id, item.quantity + 1, { source: 'cart-plus' })}>+</button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   <div className="cart-total"><span>Total</span><strong>${cartTotal.toFixed(2)}</strong></div>
                   <button className="primary-button">Continue</button>
