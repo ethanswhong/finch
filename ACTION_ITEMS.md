@@ -1,69 +1,63 @@
-- Set the ElevenLabs agent **First message** to exactly `{{character_intro}}`. Do not leave it blank.
+# Finch prototype setup checklist
 
-# Doorbase — Immediate Action Items
+## 1. Environment variables
 
-## Tonight: get the UI running
+In `.env.local` for local Vite testing:
 
-- [ ] Download/unzip the project.
-- [ ] Run `npm install`.
-- [ ] Run `cp .env.example .env.local`.
-- [ ] Keep `VITE_AGENT_MODE=demo` first.
-- [ ] Run `npm run dev -- --host`.
-- [ ] Open the network URL on iPhone Safari.
-- [ ] Turn on VoiceOver and verify categories, restaurant summaries, character buttons, menu buttons, cart quantities, and the Talk to my cart button. In demo mode, character buttons should only speak an introduction; no chat panel should appear.
+```env
+VITE_AGENT_MODE=elevenlabs
+VITE_ELEVENLABS_AGENT_ID=agent_xxxxxxxxxxxxxxxxxxxxx
+VITE_USE_SIGNED_URL=false
+SONIOX_API_KEY=your_soniox_key
+VITE_SONIOX_WAKE_ENABLED=true
+VITE_VOICEOVER_HANDOFF_DELAY_MS=1700
+VITE_AUDIO_HANDOFF_DELAY_MS=160
+```
 
-## Then: add ElevenLabs
+`SONIOX_API_KEY` is server-side only. The browser calls `/api/soniox-temp-key` and receives a short-lived transcription key.
 
-- [ ] Create an ElevenLabs account.
-- [ ] Create one ElevenAgent in English.
-- [ ] Paste `ELEVENLABS_AGENT_PROMPT.md` into its System Prompt.
-- [ ] Add the seven Client Tools from `README.md` with exact names and parameters.
-- [ ] For the fastest prototype, temporarily allow the agent to start publicly using its Agent ID.
-- [ ] Put the Agent ID in `.env.local` and set `VITE_AGENT_MODE=elevenlabs`.
-- [ ] Restart Vite and test microphone permission + live conversation: tap a character once, speak naturally for several turns, then tap the active character button again to end. There should be no text/chat UI.
+The included `vite.config.js` serves that endpoint during `npm run dev`. The included `api/soniox-temp-key.js` provides the same endpoint on Vercel.
 
-## Only after one voice works
+## 2. Install dependencies
 
-- [ ] Add optional multi-voice labels: `warm`, `bright`, `bold`, `calm`.
-- [ ] Test Fiori vs Diavola and restaurant-to-restaurant switching.
-- [ ] Test cart commands: compare, remove, add, change quantity.
+```bash
+npm install
+```
 
-## Deploy for participants
+The project now uses `@soniox/client` for the idle wake-phrase listener.
 
-- [ ] Run `npx vercel` or push to GitHub and import in Vercel.
-- [ ] Start with the public-agent setup if time is tight.
-- [ ] If you want the safer private setup, add `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` server-side in Vercel and set `VITE_USE_SIGNED_URL=true`.
-- [ ] Test the deployed HTTPS URL on iPhone Safari before sending it to participants.
+## 3. ElevenLabs client tools
 
-## Do not build before the first test
-
-- [ ] No login.
-- [ ] No checkout/payment backend.
-- [ ] No real DoorDash data.
-- [ ] No creator/Story Studio implementation yet.
-- [ ] No separate agent per dish.
-
-## After the restaurant-handoff update
-
-1. Replace the ElevenLabs System Prompt with the latest `ELEVENLABS_AGENT_PROMPT.md`.
-2. Update the `openRestaurant` client tool description to: `Open the restaurant detail page and menu when the shopper asks to enter the restaurant, view its menu, hear what it serves, or get menu recommendations from the restaurant character.`
-3. Update the `focusRestaurant` description to: `Move the active conversation to another restaurant after the shopper explicitly agrees to the recommendation. This may be called from any current character.`
-4. Restart the Vite dev server and test these exact flows:
-   - Activate a restaurant and stay silent → it should introduce itself first.
-   - Ask: “Can you introduce your menu?” → it should call `openRestaurant` and move to the restaurant detail page before describing dishes.
-   - Activate Fiori and ask: “Are there any other restaurants that might fit me better?” → it should use `restaurantDirectory`, suggest an option, ask permission, and call `focusRestaurant` only after you say yes.
-
-## VoiceOver handoff / blocking client tools
-
-For the modal VoiceOver conversation flow, set these ElevenLabs client tools to **Block conversation while tool runs** in the ElevenLabs dashboard:
+Create these client tools with these exact names:
 
 - `focusRestaurant`
+- `openRestaurant`
 - `focusMenuItem`
+- `addCartItem`
+- `removeCartItem`
+- `setCartItemQuantity`
+- `openCart`
+- `goBack`
 
-Why: the browser handler intentionally waits `VITE_VOICEOVER_HANDOFF_DELAY_MS` while VoiceOver announces the new active character. Blocking prevents the agent from taking its next spoken turn before that handoff finishes. The microphone is temporarily muted during this in-session handoff so VoiceOver speech is not transcribed as user speech.
+For navigation tools (`focusRestaurant`, `openRestaurant`, `focusMenuItem`, `openCart`, `goBack`), enable **Block conversation while tool runs** so the page transition/scroll completes before the agent continues.
 
-Environment controls:
+Also enable the built-in **End Call** system tool.
 
-- `VITE_VOICEOVER_HANDOFF_DELAY_MS=2400` — tune the handoff delay in milliseconds.
-- `VITE_SCREEN_READER_LOCK=auto` — `auto` uses an assistive/keyboard-style click heuristic; use `on` for guaranteed VoiceOver testing or `off` for a sighted-only demo.
-- `VITE_ELEVENLABS_SPEED=1.0` — optional independent agent speed override (0.7–1.2); requires the ElevenLabs Speed override to be enabled under agent Security settings.
+## 4. First message
+
+Keep First Message Overrides enabled and use:
+
+```text
+{{character_intro}}
+```
+
+## 5. Test sequence
+
+1. Browse restaurants with VoiceOver: each restaurant should be one focus stop.
+2. Focus a restaurant, then activate the persistent top-right Finch button.
+3. End and confirm focus returns to that restaurant card.
+4. Say "Hey Finch" while a restaurant or dish is focused.
+5. During a conversation, ask Finch to move to another restaurant/dish. The page should animate there while all touch/UI interaction stays locked except the Finch end button.
+6. End and confirm focus lands on the newly active restaurant/dish.
+7. In cart, ask "Who has the highest protein?" and confirm the answer names the item (for example, "Fiori...") rather than saying an ambiguous "me."
+8. Say "bye Finch", "stop Finch", and likely STT variants such as "stop Fetch" / "bye Pinch" and confirm the client fallback ends the session.

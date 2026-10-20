@@ -1,28 +1,32 @@
 import React from 'react';
-import CharacterButton from './CharacterButton.jsx';
 import Icon from './Icon.jsx';
 
-export default function RestaurantCard({ restaurant, onOpen, onCharacter, active, talking, listening, compact = false }) {
+export default function RestaurantCard({ restaurant, onOpen, onContext, active = false, compact = false }) {
   const summary = `${restaurant.name}. ${restaurant.rating} stars, ${restaurant.reviews} reviews. ${restaurant.distance} miles away. ${restaurant.eta}. ${restaurant.feature}. ${restaurant.priceLevel}.`;
   return (
     <article className={`restaurant-card ${compact ? 'restaurant-card-home' : ''} ${active ? 'conversation-active-card' : ''}`} id={`restaurant-${restaurant.id}`}>
-      <div className="image-wrap restaurant-image-wrap">
-        <button type="button" className="image-main-button" onClick={onOpen} aria-label={`Open ${restaurant.name}`}>
+      <button
+        type="button"
+        className="restaurant-card-focus-target"
+        aria-label={summary}
+        data-finch-target="restaurant"
+        onFocus={onContext}
+        onPointerDown={onContext}
+        onClick={onOpen}
+      >
+        <div className="image-wrap restaurant-image-wrap" aria-hidden="true">
           <img src={restaurant.image} alt="" />
-        </button>
-        <CharacterButton active={active} talking={talking} listening={listening} onClick={onCharacter} label={restaurant.name} expression={restaurant.character.expression} />
-      </div>
-      <div className="restaurant-summary-row">
-        <button type="button" className="restaurant-summary" onClick={onOpen} aria-label={summary}>
-          <span className="restaurant-name">{restaurant.name}</span>
-          <span className="restaurant-meta"><strong>{restaurant.rating}</strong> <Icon name="star" size={15} strokeWidth={1.8} /> ({restaurant.reviews}) · {restaurant.distance} mi · {restaurant.eta}</span>
-          <span className="restaurant-feature">{restaurant.feature}</span>
-          {restaurant.section === 'deals' || restaurant.id === 'mountain-mikes' ? <span className="deal-badge">Free item on $15+</span> : null}
-        </button>
-        <button type="button" className="favorite-button" aria-label={`Save ${restaurant.name}`}>
-          <Icon name="heart" size={27} />
-        </button>
-      </div>
+        </div>
+        <div className="restaurant-summary-row" aria-hidden="true">
+          <div className="restaurant-summary">
+            <span className="restaurant-name">{restaurant.name}</span>
+            <span className="restaurant-meta"><strong>{restaurant.rating}</strong> <Icon name="star" size={15} strokeWidth={1.8} /> ({restaurant.reviews}) · {restaurant.distance} mi · {restaurant.eta}</span>
+            <span className="restaurant-feature">{restaurant.feature}</span>
+            {restaurant.section === 'deals' || restaurant.id === 'mountain-mikes' ? <span className="deal-badge">Free item on $15+</span> : null}
+          </div>
+          <span className="favorite-button" aria-hidden="true"><Icon name="heart" size={27} /></span>
+        </div>
+      </button>
     </article>
   );
 }

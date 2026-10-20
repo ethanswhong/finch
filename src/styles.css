@@ -1462,3 +1462,208 @@ main { outline: none; }
 .conversation-lock-active .restaurant-floating-header .detail-header-button:first-child {
   visibility: hidden !important;
 }
+
+/* =========================================================
+   Finch persistent-header + item-level accessibility system
+   ========================================================= */
+:root {
+  --finch-topbar-row: 58px;
+  --finch-topbar-height: calc(var(--finch-topbar-row) + env(safe-area-inset-top));
+}
+
+/* One exact header height across home, results, restaurant and cart. */
+.top-header.unified-header,
+.top-header.unified-header.home-header,
+.top-header.unified-header.subpage-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 300 !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  height: var(--finch-topbar-height) !important;
+  min-height: var(--finch-topbar-height) !important;
+  padding: env(safe-area-inset-top) var(--page-x) 0 !important;
+  margin: 0 !important;
+  background: rgba(255,255,255,.98) !important;
+  border-bottom: 1px solid var(--line) !important;
+  color: #111 !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.unified-header-row {
+  height: var(--finch-topbar-row);
+  display: grid;
+  grid-template-columns: auto minmax(0,1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+.unified-header-left,
+.unified-header-center,
+.unified-header-actions,
+.unified-header-secondary-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.unified-header-center { justify-content: center; overflow: hidden; }
+.unified-header-actions { justify-content: flex-end; gap: 6px; }
+.unified-header-secondary-actions { gap: 6px; }
+.unified-header-title {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -.35px;
+}
+.unified-header .location-button { font-size: 18px; padding: 6px 0; }
+.unified-header .plain-icon-button,
+.unified-header .round-header-button,
+.finch-header-button {
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  min-height: 44px !important;
+  border-radius: 50% !important;
+  padding: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  border: 0 !important;
+  color: #111 !important;
+}
+.finch-header-button { position: relative; flex: none; }
+.finch-header-round { background: #f2f2f2 !important; }
+.finch-header-plain { background: transparent !important; }
+.finch-header-button.active {
+  background: #fff3c8 !important;
+  box-shadow: 0 0 0 2px rgba(17,17,17,.88) inset !important;
+}
+.finch-header-button .character-face {
+  width: 31px !important;
+  height: 28px !important;
+  filter: none !important;
+}
+.finch-header-button .character-face.is-small .ring { stroke-width: 8.2 !important; }
+.finch-header-button .character-face.is-small .accent-marks { stroke-width: 6.6 !important; }
+
+/* During a voice session the Finch control stays live; the other header
+   controls remain visible for orientation but are no longer interactive. */
+.conversation-lock-active .unified-header-left,
+.conversation-lock-active .unified-header-center,
+.conversation-lock-active .unified-header-secondary-actions {
+  opacity: .42;
+  pointer-events: none;
+}
+.conversation-lock-active .finch-header-button {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 340 !important;
+}
+
+/* Restaurant card = one VoiceOver stop. All visual subparts live inside this
+   single accessible button instead of becoming separate focus targets. */
+.restaurant-card-focus-target {
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.restaurant-card-focus-target:focus-visible,
+.menu-card-focus-target:focus-visible,
+.cart-item-focus-target:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 4px;
+}
+.restaurant-card-focus-target .restaurant-summary-row { width: 100%; }
+.restaurant-card-focus-target .restaurant-summary { cursor: inherit; }
+.restaurant-card-focus-target .favorite-button { pointer-events: none; }
+
+/* Menu/cart entries are also one screen-reader item. The visual +/- affordance
+   remains clickable for sighted testing but is deliberately not a second VO stop. */
+.menu-card-focus-target,
+.cart-item-focus-target { outline: none; }
+.menu-card-focus-target { border-radius: 16px; }
+.cart-item-focus-target { border-radius: 14px; }
+.menu-card-focus-target .add-button[aria-hidden="true"],
+.cart-item-focus-target .quantity-control[aria-hidden="true"] { pointer-events: auto; }
+
+/* The old inline character entry points are retired. Finch now lives only in
+   the persistent top-right header. */
+.character-trigger,
+.restaurant-agent-avatar,
+.talk-cart-button { display: none !important; }
+
+/* No avatar column remains in the restaurant hero. */
+.hero-restaurant-copy,
+.hero-restaurant-copy.conversation-active {
+  display: block !important;
+  left: var(--page-x) !important;
+  right: var(--page-x) !important;
+  bottom: 28px !important;
+}
+
+/* Voice session lock: do NOT freeze document scrolling at the CSS level.
+   The scrim consumes user gestures, while Finch can still programmatically
+   scroll the page when it changes restaurant/product or page. */
+.main-interaction-layer { position: relative; }
+.conversation-lock-scrim {
+  position: fixed !important;
+  top: var(--finch-topbar-height) !important;
+  bottom: 0 !important;
+  left: 50% !important;
+  width: min(100vw, 430px) !important;
+  transform: translateX(-50%) !important;
+  z-index: 200 !important;
+  background: rgba(255,255,255,.72) !important;
+  pointer-events: auto !important;
+  touch-action: none !important;
+  overscroll-behavior: none !important;
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+}
+.conversation-lock-active .conversation-active-card {
+  position: relative !important;
+  z-index: 220 !important;
+  pointer-events: none !important;
+  filter: none !important;
+  box-shadow: 0 0 0 3px rgba(255,255,255,.92), 0 12px 28px rgba(0,0,0,.12);
+}
+.conversation-lock-active .top-header { z-index: 300 !important; }
+
+/* Old modal proxy controls are no longer part of the interaction model. */
+.conversation-lock-controls,
+.conversation-lock-button,
+.conversation-lock-back { display: none !important; }
+
+/* The unified header is in normal flow, so the restaurant hero no longer needs
+   a second floating header layered over it. */
+.restaurant-page { padding-top: 0 !important; }
+.restaurant-floating-header { display: none !important; }
+
+@media (max-width: 380px) {
+  .top-header.unified-header,
+  .top-header.unified-header.home-header,
+  .top-header.unified-header.subpage-header { padding-left: 16px !important; padding-right: 16px !important; }
+  .unified-header-row { gap: 6px; }
+  .unified-header-actions,
+  .unified-header-secondary-actions { gap: 3px; }
+  .unified-header .plain-icon-button,
+  .unified-header .round-header-button,
+  .finch-header-button { width: 40px !important; height: 40px !important; min-width: 40px !important; min-height: 40px !important; }
+  .finch-header-button .character-face { width: 29px !important; height: 26px !important; }
+  .unified-header-title { font-size: 16px; }
+  .unified-header .location-button { font-size: 16px; }
+}
