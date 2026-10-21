@@ -35,7 +35,7 @@ export default function UnifiedHeader({
           )}
         </div>
 
-        <div className="unified-header-center" aria-hidden={controlsHidden ? 'true' : undefined}>
+        <div className="unified-header-center" aria-hidden={controlsHidden || view === 'cart' ? 'true' : undefined}>
           {!isHome && <strong className="unified-header-title">{isRestaurant ? selectedRestaurant?.name : title}</strong>}
         </div>
 

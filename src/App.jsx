@@ -464,7 +464,6 @@ function App() {
       .filter(Boolean);
     const contextCartTotal = contextCartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
     return JSON.stringify({
-      app: 'Doorbase narrative shopping prototype with Finch',
       screen,
       browseContext: getBrowseContext({ screen, title: browseTitle, selectedId, query: search }),
       categoryDirectory: categories.map((category) => ({ name: category.name, slug: category.slug })),
@@ -1322,10 +1321,21 @@ function App() {
 
           {view === 'cart' && (
             <div className="cart-page" tabIndex={-1}>
-              <h1 role="presentation" className="sr-only" id="cart-title">Cart</h1>
               {!cartItems.length ? <p className="empty-state">Your cart is empty.</p> : (
                 <>
-                  <h2 className="cart-order-title">Order</h2>
+                  <div className="cart-heading-row" id="cart-order-section">
+                    <div className="cart-order-title cart-heading-text" tabIndex={0} aria-label="Order">
+                      <span aria-hidden="true">Order</span>
+                    </div>
+                    <button
+                      className="section-icon-button"
+                      type="button"
+                      onClick={() => scrollToElement(popularPairings.length > 0 && pairingRestaurant ? 'cart-popular-pairings-section' : 'cart-order-summary-section')}
+                      aria-label={popularPairings.length > 0 && pairingRestaurant ? 'Skip to Popular pairings' : 'Skip to Order summary'}
+                    >
+                      <Icon name="arrowDown" />
+                    </button>
+                  </div>
                   <div className="cart-list">
                     {cartItems.map((item) => {
                       const selectItemContext = () => setContext({ type: 'menu', restaurantId: item.restaurantId, itemId: item.id });
@@ -1340,7 +1350,6 @@ function App() {
                         >
                           <div
                             className="cart-product-side"
-                            role="group"
                             tabIndex={0}
                             aria-label={`${item.name}. Quantity ${item.quantity}. ${item.price.toFixed(2)} dollars.`}
                             onFocus={selectItemContext}
@@ -1377,10 +1386,24 @@ function App() {
                   </div>
 
                   {popularPairings.length > 0 && pairingRestaurant && (
-                    <section className="cart-pairings" aria-labelledby="popular-pairings-title">
-                      <div className="cart-section-heading">
-                        <h2 id="popular-pairings-title">Popular pairings</h2>
-                        <p>More from {pairingRestaurant.name}</p>
+                    <div className="cart-pairings" id="cart-popular-pairings-section">
+                      <div className="cart-heading-row cart-pairings-heading-row">
+                        <div
+                          className="cart-section-heading cart-heading-text"
+                          tabIndex={0}
+                          aria-label={`Popular pairings. More from ${pairingRestaurant.name}.`}
+                        >
+                          <div className="cart-section-title" aria-hidden="true">Popular pairings</div>
+                          <p aria-hidden="true">More from {pairingRestaurant.name}</p>
+                        </div>
+                        <button
+                          className="section-icon-button"
+                          type="button"
+                          onClick={() => scrollToElement('cart-order-summary-section')}
+                          aria-label="Skip to Order summary"
+                        >
+                          <Icon name="arrowDown" />
+                        </button>
                       </div>
                       <div className="pairings-scroller">
                         {popularPairings.map((item) => (
@@ -1409,17 +1432,28 @@ function App() {
                           </div>
                         ))}
                       </div>
-                    </section>
+                    </div>
                   )}
 
-                  <section className="order-summary-card" aria-labelledby="order-summary-title">
-                    <h2 id="order-summary-title">Order summary</h2>
-                    <div className="summary-row" role="group" tabIndex={0} aria-label={`Items subtotal. ${itemsSubtotal.toFixed(2)} dollars.`}>
+                  <div className="order-summary-card" id="cart-order-summary-section">
+                    <div className="cart-heading-row order-summary-heading-row">
+                      <div className="cart-section-title cart-heading-text" tabIndex={0} aria-label="Order summary">
+                        <span aria-hidden="true">Order summary</span>
+                      </div>
+                      <button
+                        className="section-icon-button"
+                        type="button"
+                        onClick={() => scrollToElement('cart-checkout-button')}
+                        aria-label="Skip to checkout"
+                      >
+                        <Icon name="arrowDown" />
+                      </button>
+                    </div>
+                    <div className="summary-row" tabIndex={0} aria-label={`Items subtotal. ${itemsSubtotal.toFixed(2)} dollars.`}>
                       <span aria-hidden="true">Items subtotal</span><strong aria-hidden="true">${itemsSubtotal.toFixed(2)}</strong>
                     </div>
                     <div
                       className="summary-row"
-                      role="group"
                       tabIndex={0}
                       aria-label={deliveryFee === 0 ? 'Delivery fee. Free. 0 dollars.' : `Delivery fee. ${deliveryFee.toFixed(2)} dollars.`}
                     >
@@ -1428,20 +1462,19 @@ function App() {
                         {deliveryFee === 0 ? 'FREE · $0.00' : `$${deliveryFee.toFixed(2)}`}
                       </strong>
                     </div>
-                    <div className="summary-row" role="group" tabIndex={0} aria-label={`Estimated taxes and fees. ${estimatedTaxes.toFixed(2)} dollars.`}>
+                    <div className="summary-row" tabIndex={0} aria-label={`Estimated taxes and fees. ${estimatedTaxes.toFixed(2)} dollars.`}>
                       <span aria-hidden="true">Estimated taxes &amp; fees</span><strong aria-hidden="true">${estimatedTaxes.toFixed(2)}</strong>
                     </div>
-                    <div className="summary-row summary-discount" role="group" tabIndex={0} aria-label={`Promotional discount. Minus ${promotionalDiscount.toFixed(2)} dollars.`}>
+                    <div className="summary-row summary-discount" tabIndex={0} aria-label={`Promotional discount. Minus ${promotionalDiscount.toFixed(2)} dollars.`}>
                       <span aria-hidden="true">Promotional discount</span><strong aria-hidden="true">−${promotionalDiscount.toFixed(2)}</strong>
                     </div>
                     <div className="summary-divider" aria-hidden="true" />
-                    <div className="summary-total" role="group" tabIndex={0} aria-label={`Estimated total. ${estimatedTotal.toFixed(2)} dollars.`}>
+                    <div className="summary-total" tabIndex={0} aria-label={`Estimated total. ${estimatedTotal.toFixed(2)} dollars.`}>
                       <span aria-hidden="true">Estimated Total</span><strong aria-hidden="true">${estimatedTotal.toFixed(2)}</strong>
                     </div>
-                    <p className="summary-note">Estimated checkout pricing for this prototype.</p>
-                  </section>
+                  </div>
 
-                  <button className="primary-button cart-continue-button">Continue&nbsp;&nbsp;${estimatedTotal.toFixed(2)}</button>
+                  <button id="cart-checkout-button" className="primary-button cart-continue-button">Continue&nbsp;&nbsp;${estimatedTotal.toFixed(2)}</button>
                 </>
               )}
             </div>

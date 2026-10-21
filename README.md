@@ -1,4 +1,4 @@
-# Doorbase — Narrative Shopping Prototype
+# Delivery — Narrative Shopping Prototype
 
 A mobile-first React/Vite food-delivery prototype for testing **narrative shopping with blind / VoiceOver users**.
 
