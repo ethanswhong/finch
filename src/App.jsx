@@ -116,6 +116,32 @@ function getDemoComparisonSignals(item) {
   };
 }
 
+function getPopularCartPairings(cartItems, limit = 4) {
+  if (!cartItems?.length) return [];
+  const primaryRestaurantId = cartItems[0]?.restaurantId;
+  const restaurant = primaryRestaurantId ? getRestaurant(primaryRestaurantId) : null;
+  if (!restaurant) return [];
+
+  const cartIds = new Set(cartItems.map((item) => item.id));
+  const complementarySections = ['sides', 'starters', 'appetizers', 'dessert', 'desserts', 'drinks', 'snacks'];
+  const scored = (restaurant.menu || [])
+    .filter((item) => !cartIds.has(item.id))
+    .map((item, index) => {
+      const section = String(item.menuSection || '').toLowerCase();
+      let score = 0;
+      if (complementarySections.some((name) => section.includes(name))) score += 8;
+      if (item.tags?.includes('shareable')) score += 4;
+      if (item.tags?.includes('dessert')) score += 3;
+      if (item.tags?.includes('lighter')) score += 1;
+      return { item, score, index };
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, limit)
+    .map(({ item }) => ({ ...item, restaurantId: restaurant.id, restaurantName: restaurant.name }));
+
+  return scored;
+}
+
 function contextsEqual(a, b) {
   if (!a || !b || a.type !== b.type) return false;
   if (a.type === 'restaurant') return a.restaurantId === b.restaurantId;
@@ -186,12 +212,20 @@ function App() {
   const cartRef = useRef(cart);
   const currentContextRef = useRef(currentContext);
   const activeCharacterRef = useRef(activeCharacter);
+  const viewRef = useRef(view);
+  const selectedRestaurantIdRef = useRef(selectedRestaurantId);
+  const resultTitleRef = useRef(resultTitle);
+  const resultRestaurantIdsRef = useRef(resultRestaurantIds);
   const activationGenerationRef = useRef(0);
   const focusRestoreTimerRef = useRef(null);
   const endingConversationRef = useRef(false);
   cartRef.current = cart;
   currentContextRef.current = currentContext;
   activeCharacterRef.current = activeCharacter;
+  viewRef.current = view;
+  selectedRestaurantIdRef.current = selectedRestaurantId;
+  resultTitleRef.current = resultTitle;
+  resultRestaurantIdsRef.current = resultRestaurantIds;
 
   // Unlock the shared cue AudioContext from real interaction. Safari may
   // otherwise block a sound that is first requested later by a Soniox callback.
@@ -210,6 +244,15 @@ function App() {
     .filter(Boolean), [cart]);
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
   const cartTotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const cartRestaurantIds = [...new Set(cartItems.map((item) => item.restaurantId).filter(Boolean))];
+  const primaryCartRestaurant = cartRestaurantIds.length ? getRestaurant(cartRestaurantIds[0]) : null;
+  const cartPairings = getPopularCartPairings(cartItems);
+  // Demo checkout pricing is deterministic so both the visible UI and Finch use
+  // the exact same numbers. Delivery becomes free at a small prototype threshold.
+  const cartDeliveryFee = cartItems.length ? (cartTotal >= 20 ? 0 : 2.99) : 0;
+  const cartEstimatedTaxesAndFees = cartItems.length ? cartTotal * 0.0875 : 0;
+  const cartPromotionalDiscount = cartItems.length ? Math.min(cartTotal * 0.10, 8) : 0;
+  const cartOrderTotal = Math.max(0, cartTotal + cartDeliveryFee + cartEstimatedTaxesAndFees - cartPromotionalDiscount);
   const selectedRestaurant = selectedRestaurantId ? getRestaurant(selectedRestaurantId) : null;
 
   const conversation = useConversation({
@@ -426,10 +469,13 @@ function App() {
   }
 
   function buildAgentContext(character = activeCharacterRef.current || currentContextRef.current, overrides = {}) {
-    const screen = overrides.view ?? view;
-    const selectedId = Object.prototype.hasOwnProperty.call(overrides, 'selectedRestaurantId') ? overrides.selectedRestaurantId : selectedRestaurantId;
-    const resultIds = overrides.resultRestaurantIds ?? resultRestaurantIds;
-    const browseTitle = overrides.resultTitle ?? resultTitle;
+    // Use semantic refs rather than render-closure values. Navigation tools update
+    // these refs before React paints, so contextual updates never regress to the
+    // previous page while the UI transition is still settling.
+    const screen = overrides.view ?? viewRef.current;
+    const selectedId = Object.prototype.hasOwnProperty.call(overrides, 'selectedRestaurantId') ? overrides.selectedRestaurantId : selectedRestaurantIdRef.current;
+    const resultIds = overrides.resultRestaurantIds ?? resultRestaurantIdsRef.current;
+    const browseTitle = overrides.resultTitle ?? resultTitleRef.current;
     const currentRestaurant = character?.restaurantId ? getRestaurant(character.restaurantId) : (selectedId ? getRestaurant(selectedId) : null);
     const currentItem = character?.itemId ? getMenuItem(character.itemId) : null;
     const contextCart = overrides.cart ?? cartRef.current;
@@ -440,6 +486,13 @@ function App() {
       })
       .filter(Boolean);
     const contextCartTotal = contextCartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const contextDeliveryFee = contextCartItems.length ? (contextCartTotal >= 20 ? 0 : 2.99) : 0;
+    const contextEstimatedTaxesAndFees = contextCartItems.length ? Number((contextCartTotal * 0.0875).toFixed(2)) : 0;
+    const contextPromotionalDiscount = contextCartItems.length ? Number((Math.min(contextCartTotal * 0.10, 8)).toFixed(2)) : 0;
+    const contextEstimatedTotal = contextCartItems.length
+      ? Number(Math.max(0, contextCartTotal + contextDeliveryFee + contextEstimatedTaxesAndFees - contextPromotionalDiscount).toFixed(2))
+      : 0;
+    const contextCartPairings = getPopularCartPairings(contextCartItems);
     return JSON.stringify({
       app: 'Doorbase narrative shopping prototype with Finch',
       screen,
@@ -518,14 +571,35 @@ function App() {
         character: sanitizeCharacter(item.character),
       })),
       cartTotal: contextCartTotal,
+      cartPairings: contextCartPairings.map((item) => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        restaurantId: item.restaurantId,
+        restaurantName: item.restaurantName,
+        menuSection: item.menuSection,
+      })),
+      cartPricing: {
+        subtotal: contextCartTotal,
+        deliveryFee: contextDeliveryFee,
+        estimatedTaxesAndFees: contextEstimatedTaxesAndFees,
+        promotionalDiscount: contextPromotionalDiscount,
+        estimatedTotal: contextEstimatedTotal,
+        // Legacy aliases retained so older prompt/tool phrasing still resolves safely.
+        estimatedTax: contextEstimatedTaxesAndFees,
+        orderTotal: contextEstimatedTotal,
+      },
       interactionRules: [
         'This is a testing prototype: answer low-stakes qualitative shopping questions naturally and decisively from ingredients, tags, descriptions, and demoSignals.',
         'Do not mention APP_CONTEXT, missing prototype data, or prototype scores unless the shopper explicitly asks how the demo works.',
         'Never invent exact allergens, calories, medical claims, or exact nutrition numbers.',
         'For app-wide navigation or general questions, speak as neutral Finch rather than as a restaurant or food character.',
+        'Navigation tool results beginning with NAV_OK are authoritative success acknowledgements. Do not retry the same navigation or infer failure from delayed scrolling, VoiceOver focus, rendering, or an APP_CONTEXT message that arrives a moment later.',
         'Entity ownership: when the shopper singles out one exact dish by name or clear reference — even casually, such as “I’m interested in Fiori”, “what about Fiori?”, or “tell me about this one” — make that dish the active character with focusMenuItem before answering as it. No explicit navigation verb is required.',
         'A restaurant speaks for restaurant-level questions and for comparisons spanning multiple dishes from that restaurant. A single named dish speaks for itself.',
         'Cart actions are not limited to currentItem. From neutral Finch or restaurant context, resolve a named dish using currentRestaurant.menu, visibleMenuItems, or restaurantDirectory and pass its exact id to addCartItem. Never omit itemId just because currentItem is null.',
+        'On the cart screen, cartPairings contains optional add-on recommendations from the same restaurant as the first cart item. Use those exact names and IDs if the shopper asks about popular pairings.',
+        'For checkout cost questions, use cartPricing exactly: subtotal, deliveryFee, estimatedTaxesAndFees, promotionalDiscount, and estimatedTotal.',
         'If a cart tool returns ITEM_NOT_FOUND or ITEM_AMBIGUOUS, use the IDs/candidates in context or the tool result and retry once before telling the shopper it failed.',
         'In cart comparisons, name the item before or with any first-person phrase. Never answer with an ambiguous bare “me”.',
         'Keep turns concise and interruption-friendly.',
@@ -690,68 +764,96 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, selectedRestaurantId, resultRestaurantIds.join('|'), JSON.stringify(cart), JSON.stringify(activeCharacter), conversation.status]);
 
-  useConversationClientTool('focusRestaurant', async ({ restaurantId }) => {
-    const restaurant = getRestaurant(restaurantId);
-    if (!restaurant) return `Restaurant ${restaurantId} was not found.`;
-
-    const next = { type: 'restaurant', restaurantId };
-    const nextResultIds = resultRestaurantIds.includes(restaurantId)
-      ? resultRestaurantIds
-      : [...resultRestaurantIds, restaurantId];
-    const nextTitle = view === 'results' && resultTitle ? resultTitle : 'Restaurants';
-
-    // Non-blocking experiment: semantic context changes immediately. Visual
-    // scroll/focus follows independently and is not treated as agent state.
-    setResultRestaurantIds(nextResultIds);
-    setResultTitle(nextTitle);
-    setSelectedRestaurantId(null);
-    setView('results');
-    setContext(next);
-    activeCharacterRef.current = next;
-    setActiveCharacter(next);
-    pushContextUpdate(next, {
-      view: 'results',
-      selectedRestaurantId: null,
-      resultTitle: nextTitle,
-      resultRestaurantIds: nextResultIds,
+  function deferNavigationUi(label, apply) {
+    // Return the client-tool acknowledgement before React rerenders/unmounts any
+    // page content. This keeps ElevenLabs from mistaking a successful visual
+    // transition for a missing/late client-tool response.
+    queueMicrotask(() => {
+      try {
+        apply();
+        console.warn('[NAV UI] applied after acknowledgement', { label, view: viewRef.current, context: currentContextRef.current });
+      } catch (error) {
+        console.error('[NAV UI] deferred transition failed after NAV_OK', { label, error });
+      }
     });
-    scrollToContext(next, 'smooth');
-    console.warn('[NAV TOOL] focusRestaurant dispatched (non-blocking)', { restaurantId, restaurantName: restaurant.name });
-    return `${restaurant.name} is now the active restaurant.`;
-  });
+  }
 
-  useConversationClientTool('openRestaurant', async ({ restaurantId }) => {
+  useConversationClientTool('focusRestaurant', ({ restaurantId }) => {
     const restaurant = getRestaurant(restaurantId);
-    if (!restaurant) return `Restaurant ${restaurantId} was not found.`;
+    if (!restaurant) return `NAV_ERROR: Restaurant ${restaurantId} was not found.`;
 
     const next = { type: 'restaurant', restaurantId };
-    setSelectedRestaurantId(restaurantId);
-    setMenuFilter('featured');
-    setView('restaurant');
-    setContext(next);
+    const currentIds = resultRestaurantIdsRef.current || [];
+    const nextResultIds = currentIds.includes(restaurantId) ? currentIds : [...currentIds, restaurantId];
+    const nextTitle = viewRef.current === 'results' && resultTitleRef.current ? resultTitleRef.current : 'Restaurants';
+
+    // Semantic state becomes authoritative synchronously. React/UI work follows
+    // in a microtask so the tool can acknowledge success immediately.
+    viewRef.current = 'results';
+    selectedRestaurantIdRef.current = null;
+    resultRestaurantIdsRef.current = nextResultIds;
+    resultTitleRef.current = nextTitle;
+    currentContextRef.current = next;
     activeCharacterRef.current = next;
-    setActiveCharacter(next);
-    pushContextUpdate(next, { view: 'restaurant', selectedRestaurantId: restaurantId });
-    scrollToContext(next, 'smooth');
-    console.warn('[NAV TOOL] openRestaurant dispatched (non-blocking)', { restaurantId, restaurantName: restaurant.name });
-    return `${restaurant.name}'s menu is open and ${restaurant.name} is the active restaurant.`;
+
+    console.warn('[NAV ACK] focusRestaurant', { restaurantId, restaurantName: restaurant.name });
+    deferNavigationUi('focusRestaurant', () => {
+      setResultRestaurantIds(nextResultIds);
+      setResultTitle(nextTitle);
+      setSelectedRestaurantId(null);
+      setView('results');
+      setCurrentContext(next);
+      setActiveCharacter(next);
+      scrollToContext(next, 'smooth');
+    });
+
+    return `NAV_OK: ${restaurant.name} is now the active restaurant. Do not retry this navigation.`;
   });
 
-  useConversationClientTool('focusMenuItem', async ({ itemId }) => {
+  useConversationClientTool('openRestaurant', ({ restaurantId }) => {
+    const restaurant = getRestaurant(restaurantId);
+    if (!restaurant) return `NAV_ERROR: Restaurant ${restaurantId} was not found.`;
+
+    const next = { type: 'restaurant', restaurantId };
+    viewRef.current = 'restaurant';
+    selectedRestaurantIdRef.current = restaurantId;
+    currentContextRef.current = next;
+    activeCharacterRef.current = next;
+
+    console.warn('[NAV ACK] openRestaurant', { restaurantId, restaurantName: restaurant.name });
+    deferNavigationUi('openRestaurant', () => {
+      setSelectedRestaurantId(restaurantId);
+      setMenuFilter('featured');
+      setView('restaurant');
+      setCurrentContext(next);
+      setActiveCharacter(next);
+      scrollToContext(next, 'smooth');
+    });
+
+    return `NAV_OK: ${restaurant.name}'s menu is open and ${restaurant.name} is the active restaurant. Do not retry this navigation.`;
+  });
+
+  useConversationClientTool('focusMenuItem', ({ itemId }) => {
     const item = getMenuItem(itemId);
-    if (!item) return `Menu item ${itemId} was not found.`;
+    if (!item) return `NAV_ERROR: Menu item ${itemId} was not found.`;
 
     const next = { type: 'menu', restaurantId: item.restaurantId, itemId };
-    setSelectedRestaurantId(item.restaurantId);
-    setMenuFilter('featured');
-    setView('restaurant');
-    setContext(next);
+    viewRef.current = 'restaurant';
+    selectedRestaurantIdRef.current = item.restaurantId;
+    currentContextRef.current = next;
     activeCharacterRef.current = next;
-    setActiveCharacter(next);
-    pushContextUpdate(next, { view: 'restaurant', selectedRestaurantId: item.restaurantId });
-    scrollToContext(next, 'smooth');
-    console.warn('[NAV TOOL] focusMenuItem dispatched (non-blocking)', { itemId, itemName: item.name, restaurantId: item.restaurantId });
-    return `${item.name} is now the active dish.`;
+
+    console.warn('[NAV ACK] focusMenuItem', { itemId, itemName: item.name, restaurantId: item.restaurantId });
+    deferNavigationUi('focusMenuItem', () => {
+      setSelectedRestaurantId(item.restaurantId);
+      setMenuFilter('featured');
+      setView('restaurant');
+      setCurrentContext(next);
+      setActiveCharacter(next);
+      scrollToContext(next, 'smooth');
+    });
+
+    return `NAV_OK: ${item.name} is now the active dish. Do not retry this navigation.`;
   });
 
   function getPreferredRestaurantIdForCartResolution() {
@@ -759,7 +861,7 @@ function App() {
     const focused = currentContextRef.current;
     if (active?.restaurantId) return active.restaurantId;
     if (focused?.restaurantId) return focused.restaurantId;
-    if (selectedRestaurantId) return selectedRestaurantId;
+    if (selectedRestaurantIdRef.current) return selectedRestaurantIdRef.current;
     return null;
   }
 
@@ -847,47 +949,56 @@ function App() {
       : `Removed ${item.name} from the cart.`;
   });
 
-  useConversationClientTool('openCart', async () => {
+  useConversationClientTool('openCart', () => {
     const next = { type: 'cart' };
-    setView('cart');
-    setContext(next);
+    viewRef.current = 'cart';
+    currentContextRef.current = next;
     activeCharacterRef.current = next;
-    setActiveCharacter(next);
-    pushContextUpdate(next, { view: 'cart' });
-    scrollToContext(next, 'smooth');
-    console.warn('[NAV TOOL] openCart dispatched (non-blocking)', { cartCount });
-    return `The cart is open with ${cartCount} items.`;
+
+    console.warn('[NAV ACK] openCart', { cartCount });
+    deferNavigationUi('openCart', () => {
+      setView('cart');
+      setCurrentContext(next);
+      setActiveCharacter(next);
+      scrollToContext(next, 'smooth');
+    });
+
+    return `NAV_OK: The cart is open with ${cartCount} items. Do not retry this navigation.`;
   });
 
-  useConversationClientTool('goBack', async () => {
+  useConversationClientTool('goBack', () => {
+    const fromView = viewRef.current;
+    const restaurantBeforeBack = selectedRestaurantIdRef.current;
     let nextView = 'home';
     let nextSelectedId = null;
     let nextContext = GENERAL_CONTEXT;
 
-    if (view === 'restaurant') {
+    if (fromView === 'restaurant') {
       nextView = 'results';
-      nextSelectedId = null;
-    } else if (view === 'cart' && selectedRestaurantId) {
+    } else if (fromView === 'cart' && restaurantBeforeBack) {
       nextView = 'restaurant';
-      nextSelectedId = selectedRestaurantId;
-      nextContext = { type: 'restaurant', restaurantId: selectedRestaurantId };
+      nextSelectedId = restaurantBeforeBack;
+      nextContext = { type: 'restaurant', restaurantId: restaurantBeforeBack };
     }
 
-    navigateBack({ keepConversation: true });
+    viewRef.current = nextView;
+    selectedRestaurantIdRef.current = nextSelectedId;
+    currentContextRef.current = nextContext;
     activeCharacterRef.current = nextContext;
-    setActiveCharacter(nextContext);
-    setContext(nextContext);
-    pushContextUpdate(nextContext, {
-      view: nextView,
-      selectedRestaurantId: nextSelectedId,
-      resultTitle,
-      resultRestaurantIds,
+
+    console.warn('[NAV ACK] goBack', { fromView, nextView, nextContext });
+    deferNavigationUi('goBack', () => {
+      setView(nextView);
+      setSelectedRestaurantId(nextSelectedId);
+      setCurrentContext(nextContext);
+      setActiveCharacter(nextContext);
+      if (nextContext.type !== 'general') scrollToContext(nextContext, 'smooth');
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
     });
-    if (nextContext.type !== 'general') scrollToContext(nextContext, 'smooth');
-    console.warn('[NAV TOOL] goBack dispatched (non-blocking)', { nextView, nextContext });
+
     return nextContext.type === 'general'
-      ? 'Went back one screen. Continue as neutral Finch.'
-      : `Went back to ${getContextName(nextContext)}.`;
+      ? 'NAV_OK: Went back one screen. Continue as neutral Finch. Do not retry this navigation.'
+      : `NAV_OK: Went back to ${getContextName(nextContext)}. Do not retry this navigation.`;
   });
 
   function openCategory(name) {
@@ -1262,53 +1373,121 @@ function App() {
               <h1 role="presentation" className="sr-only" id="cart-title">Cart</h1>
               {!cartItems.length ? <p className="empty-state">Your cart is empty.</p> : (
                 <>
-                  <div className="cart-list">
-                    {cartItems.map((item) => {
-                      const selectItemContext = () => setContext({ type: 'menu', restaurantId: item.restaurantId, itemId: item.id });
-                      const active = activeCharacter?.type === 'menu' && activeCharacter.itemId === item.id;
-                      return (
-                        <div
-                          className={`cart-item cart-item-focus-target ${active ? 'conversation-active-card' : ''}`}
-                          key={item.id}
-                          id={`cart-${item.id}`}
-                          tabIndex={0}
-                          data-finch-target="menu"
-                          aria-label={`${item.name}. ${item.restaurantName}. ${item.price.toFixed(2)} dollars. Quantity ${item.quantity}.`}
-                          onFocus={selectItemContext}
-                          onPointerDown={selectItemContext}
-                        >
-                          <div className="cart-product-side" aria-hidden="true">
-                            <div className="cart-thumb-wrap">
-                              <img src={item.image} alt="" />
-                              {active && isSpeaking && (
-                                <div className="context-character-overlay context-character-overlay-cart">
-                                  <CharacterFace expression={item.character.expression} talking label={item.name} />
-                                </div>
-                              )}
-                            </div>
-                            <div className="cart-item-copy">
-                              <strong>{item.name}</strong><span>{item.restaurantName}</span><span>${item.price.toFixed(2)}</span>
-                            </div>
-                          </div>
-                          <div className="quantity-control" onFocusCapture={selectItemContext} onPointerDownCapture={selectItemContext}>
-                            <button
-                              type="button"
-                              aria-label={`Decrease ${item.name} quantity. Current quantity ${item.quantity}.`}
-                              onClick={(event) => { event.stopPropagation(); setQuantity(item.id, item.quantity - 1, { source: 'cart-minus' }); }}
-                            >−</button>
-                            <span aria-hidden="true">{item.quantity}</span>
-                            <button
-                              type="button"
-                              aria-label={`Increase ${item.name} quantity. Current quantity ${item.quantity}.`}
-                              onClick={(event) => { event.stopPropagation(); setQuantity(item.id, item.quantity + 1, { source: 'cart-plus' }); }}
-                            >+</button>
-                          </div>
+                  <div className="cart-checkout-card">
+                    <div className="cart-order-section">
+                      <div className="cart-order-header">
+                        <div>
+                          <h2 role="presentation" id="cart-order-heading">Order</h2>
+                          <strong>{cartRestaurantIds.length === 1 && primaryCartRestaurant ? primaryCartRestaurant.name : `${cartRestaurantIds.length} restaurants`}</strong>
+                          <span>{cartCount} {cartCount === 1 ? 'item' : 'items'} · ${cartTotal.toFixed(2)} subtotal</span>
                         </div>
-                      );
-                    })}
+                      </div>
+                      <h3 role="presentation" className="cart-subsection-title">Your order details</h3>
+                      <div className="cart-list">
+                        {cartItems.map((item) => {
+                          const selectItemContext = () => setContext({ type: 'menu', restaurantId: item.restaurantId, itemId: item.id });
+                          const active = activeCharacter?.type === 'menu' && activeCharacter.itemId === item.id;
+                          return (
+                            <div
+                              className={`cart-item cart-item-focus-target ${active ? 'conversation-active-card' : ''}`}
+                              key={item.id}
+                              id={`cart-${item.id}`}
+                              tabIndex={0}
+                              data-finch-target="menu"
+                              aria-label={`${item.name}. ${item.restaurantName}. ${item.price.toFixed(2)} dollars. Quantity ${item.quantity}.`}
+                              onFocus={selectItemContext}
+                              onPointerDown={selectItemContext}
+                            >
+                              <div className="cart-product-side" aria-hidden="true">
+                                <div className="cart-thumb-wrap">
+                                  <img src={item.image} alt="" />
+                                  {active && isSpeaking && (
+                                    <div className="context-character-overlay context-character-overlay-cart">
+                                      <CharacterFace expression={item.character.expression} talking label={item.name} />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="cart-item-copy">
+                                  <strong>{item.name}</strong><span>{item.restaurantName}</span><span>${item.price.toFixed(2)}</span>
+                                </div>
+                              </div>
+                              <div className="quantity-control" onFocusCapture={selectItemContext} onPointerDownCapture={selectItemContext}>
+                                <button
+                                  type="button"
+                                  aria-label={`Decrease ${item.name} quantity. Current quantity ${item.quantity}.`}
+                                  onClick={(event) => { event.stopPropagation(); setQuantity(item.id, item.quantity - 1, { source: 'cart-minus' }); }}
+                                >−</button>
+                                <span aria-hidden="true">{item.quantity}</span>
+                                <button
+                                  type="button"
+                                  aria-label={`Increase ${item.name} quantity. Current quantity ${item.quantity}.`}
+                                  onClick={(event) => { event.stopPropagation(); setQuantity(item.id, item.quantity + 1, { source: 'cart-plus' }); }}
+                                >+</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {cartPairings.length > 0 && (
+                      <div className="cart-pairings-section">
+                        <div className="cart-section-heading">
+                          <h2 role="presentation" id="cart-pairings-heading">Popular pairings</h2>
+                          {primaryCartRestaurant && <p>More from {primaryCartRestaurant.name}</p>}
+                        </div>
+                        <div className="cart-pairings-scroller">
+                          {cartPairings.map((pairing) => {
+                            const selectPairingContext = () => setContext({ type: 'menu', restaurantId: pairing.restaurantId, itemId: pairing.id });
+                            return (
+                              <div
+                                className="cart-pairing-card"
+                                key={pairing.id}
+                                tabIndex={0}
+                                data-finch-target="menu"
+                                aria-label={`${pairing.name}. ${pairing.price.toFixed(2)} dollars. Popular pairing from ${pairing.restaurantName}.`}
+                                onFocus={selectPairingContext}
+                                onPointerDown={selectPairingContext}
+                              >
+                                <div className="cart-pairing-image-wrap" aria-hidden="true">
+                                  <img src={pairing.image} alt="" />
+                                </div>
+                                <div className="cart-pairing-copy" aria-hidden="true">
+                                  <strong>{pairing.name}</strong>
+                                  <span>${pairing.price.toFixed(2)}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="cart-pairing-add"
+                                  aria-label={`Add ${pairing.name} to cart`}
+                                  onFocus={selectPairingContext}
+                                  onPointerDown={selectPairingContext}
+                                  onClick={(event) => { event.stopPropagation(); addItem(pairing.id, 1, { source: 'cart-pairing-plus' }); }}
+                                >+</button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="cart-pricing-summary">
+                      <h2 role="presentation" id="cart-summary-heading" className="cart-summary-title">Order summary</h2>
+                      <div className="cart-pricing-row"><span>Items subtotal</span><strong>${cartTotal.toFixed(2)}</strong></div>
+                      <div className="cart-pricing-row">
+                        <span>Delivery fee</span>
+                        <strong className={cartDeliveryFee === 0 ? 'cart-free-value' : ''}>{cartDeliveryFee === 0 ? 'FREE · $0.00' : `$${cartDeliveryFee.toFixed(2)}`}</strong>
+                      </div>
+                      <div className="cart-pricing-row"><span>Estimated taxes &amp; fees</span><strong>${cartEstimatedTaxesAndFees.toFixed(2)}</strong></div>
+                      <div className="cart-pricing-row cart-promo-row"><span>Promotional discount</span><strong>−${cartPromotionalDiscount.toFixed(2)}</strong></div>
+                      <div className="cart-pricing-row cart-pricing-total"><span>Estimated Total</span><strong>${cartOrderTotal.toFixed(2)}</strong></div>
+                      <p className="cart-pricing-note">Estimated checkout pricing for this prototype.</p>
+                    </div>
                   </div>
-                  <div className="cart-total"><span>Total</span><strong>${cartTotal.toFixed(2)}</strong></div>
-                  <button className="primary-button">Continue</button>
+
+                  <button className="primary-button" aria-label={`Continue to checkout. Estimated total ${cartOrderTotal.toFixed(2)} dollars.`}>
+                    <span>Continue</span><span className="checkout-total">${cartOrderTotal.toFixed(2)}</span>
+                  </button>
                 </>
               )}
             </div>
@@ -1326,7 +1505,7 @@ function App() {
         )}
 
         {view === 'restaurant' && cartCount > 0 && (
-          <button className="sticky-cart" onClick={openCartFromUI} aria-label={`Open cart. ${cartCount} items. $${cartTotal.toFixed(2)} total.`}>
+          <button className="sticky-cart" onClick={openCartFromUI} aria-label={`Open cart. ${cartCount} items. $${cartTotal.toFixed(2)} subtotal.`}>
             <span><Icon name="cart" size={23} /> {cartCount}</span><span>${cartTotal.toFixed(2)} · View cart</span>
           </button>
         )}
