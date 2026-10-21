@@ -32,6 +32,7 @@ The project uses `@soniox/client` for the continuous wake/stop listener.
 
 Create these client tools with these exact names and parameter identifiers:
 
+- `openCategory(categoryName: string)` — open the matching category results page from the home screen and keep Finch as the neutral conversational character.
 - `focusRestaurant(restaurantId: string)` — move the results list to a restaurant and make that restaurant the conversational character.
 - `openRestaurant(restaurantId: string)` — open that restaurant's menu page and make the restaurant the conversational character.
 - `focusMenuItem(itemId: string)` — reveal/focus a dish on its restaurant menu and make that dish the conversational character.
@@ -41,7 +42,7 @@ Create these client tools with these exact names and parameter identifiers:
 - `openCart()`
 - `goBack()`
 
-For **every navigation tool** (`focusRestaurant`, `openRestaurant`, `focusMenuItem`, `openCart`, `goBack`), enable **Block conversation while tool runs / Wait for response**. This is important: the handler now waits for the React page transition, programmatic scroll, context update, and short VoiceOver context announcement before returning.
+For **every navigation tool** (`openCategory`, `focusRestaurant`, `openRestaurant`, `focusMenuItem`, `openCart`, `goBack`), enable **Block conversation while tool runs / Wait for response**. This is important: the handler now waits for the React page transition, programmatic scroll, context update, and short VoiceOver context announcement before returning.
 
 Also enable the built-in **End Call** system tool as a fallback. Soniox is the primary client-side stop detector for `stop/bye Finch` during the demo.
 

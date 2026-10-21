@@ -467,6 +467,7 @@ function App() {
       app: 'Doorbase narrative shopping prototype with Finch',
       screen,
       browseContext: getBrowseContext({ screen, title: browseTitle, selectedId, query: search }),
+      categoryDirectory: categories.map((category) => ({ name: category.name, slug: category.slug })),
       currentCharacter: character || GENERAL_CONTEXT,
       currentFocusContext: currentContextRef.current,
       currentRestaurant: currentRestaurant ? {
@@ -546,6 +547,7 @@ function App() {
         'Do not mention APP_CONTEXT, missing prototype data, or prototype scores unless the shopper explicitly asks how the demo works.',
         'Never invent exact allergens, calories, medical claims, or exact nutrition numbers.',
         'For app-wide navigation or general questions, speak as neutral Finch rather than as a restaurant or food character.',
+        'When the shopper asks to browse, show, open, or go to a food category from the home screen, call openCategory with the exact categoryName from categoryDirectory. Do not substitute a restaurant for a category request.',
         'Entity ownership: when the shopper singles out one exact dish by name or clear reference — even casually, such as “I’m interested in Fiori”, “what about Fiori?”, or “tell me about this one” — make that dish the active character with focusMenuItem before answering as it. No explicit navigation verb is required.',
         'A restaurant speaks for restaurant-level questions and for comparisons spanning multiple dishes from that restaurant. A single named dish speaks for itself.',
         'Cart actions are not limited to currentItem. From neutral Finch or restaurant context, resolve a named dish using currentRestaurant.menu, visibleMenuItems, or restaurantDirectory and pass its exact id to addCartItem. Never omit itemId just because currentItem is null.',
@@ -712,6 +714,44 @@ function App() {
     conversation.sendContextualUpdate(`APP_CONTEXT UPDATED: ${buildAgentContext()}`);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, selectedRestaurantId, resultRestaurantIds.join('|'), JSON.stringify(cart), JSON.stringify(activeCharacter), conversation.status]);
+
+  useConversationClientTool('openCategory', async ({ categoryName, category, name } = {}) => {
+    const requested = String(categoryName || category || name || '').trim();
+    const normalized = requested.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const matchedCategory = categories.find((entry) =>
+      entry.name.toLowerCase() === requested.toLowerCase() || entry.slug === normalized
+    );
+
+    if (!matchedCategory) {
+      console.warn('[NAV TOOL] openCategory rejected: unknown category', { requested });
+      return `CATEGORY_NOT_FOUND: ${requested || 'The requested category'} was not found. Use an exact categoryName from categoryDirectory.`;
+    }
+
+    const canonicalName = matchedCategory.name;
+    const matches = canonicalName === 'Deals'
+      ? (homeSections.find((section) => section.id === 'deals')?.restaurantIds || []).map(getRestaurant).filter(Boolean)
+      : restaurants.filter((restaurant) =>
+          restaurant.categories.some((restaurantCategory) => restaurantCategory.toLowerCase() === canonicalName.toLowerCase())
+        );
+    const nextTitle = canonicalName === 'Deals' ? 'Deals for you' : `${canonicalName} restaurants`;
+    const nextRestaurantIds = (matches.length ? matches : restaurants.slice(0, 5)).map((restaurant) => restaurant.id);
+
+    setResultTitle(nextTitle);
+    setResultRestaurantIds(nextRestaurantIds);
+    setView('results');
+    setContext(GENERAL_CONTEXT);
+    activeCharacterRef.current = GENERAL_CONTEXT;
+    setActiveCharacter(GENERAL_CONTEXT);
+    pushContextUpdate(GENERAL_CONTEXT, {
+      view: 'results',
+      selectedRestaurantId: null,
+      resultTitle: nextTitle,
+      resultRestaurantIds: nextRestaurantIds,
+    });
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    console.warn('[NAV TOOL] openCategory dispatched (non-blocking)', { categoryName: canonicalName, resultCount: nextRestaurantIds.length });
+    return `${nextTitle} are open.`;
+  });
 
   useConversationClientTool('focusRestaurant', async ({ restaurantId }) => {
     const restaurant = getRestaurant(restaurantId);

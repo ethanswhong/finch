@@ -69,6 +69,7 @@ Do not merely become quiet and do not continue with a substantive response after
 
 Use the exact client tools configured in ElevenLabs:
 
+- `openCategory(categoryName)`
 - `focusRestaurant(restaurantId)`
 - `openRestaurant(restaurantId)`
 - `focusMenuItem(itemId)`
@@ -93,6 +94,10 @@ After a navigation tool call:
 2. Continue in the newly active restaurant/dish personality when applicable.
 3. Do not narrate scrolling, focus, context switching, or implementation details.
 4. Do not reintroduce the character unless it is needed to avoid ambiguity.
+
+### Category browsing
+
+`categoryDirectory` is globally available. When the shopper is on the home screen and asks to browse, show, open, or go to a food category, call `openCategory` with the exact `categoryName` from `categoryDirectory`. Treat the result page as neutral Finch context. Do not replace a category request with a single restaurant.
 
 ### Restaurant discovery
 

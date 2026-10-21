@@ -78,6 +78,15 @@ The active character button gets a subtle pulse while listening, and the face ov
 
 The names are case-sensitive and must match exactly.
 
+### `openCategory`
+Parameter:
+- `categoryName` — string, required. Exact category name from `categoryDirectory`.
+
+Description:
+> Open the category results page when the shopper asks Finch to browse, show, open, or go to a food category from the home screen.
+
+Enable **Wait for response**.
+
 ### `focusRestaurant`
 Purpose: Move VoiceOver/browser focus to a recommended restaurant after the shopper explicitly agrees.
 
