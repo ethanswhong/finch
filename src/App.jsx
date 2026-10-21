@@ -1031,6 +1031,15 @@ function App() {
     window.requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   }
 
+  function scrollToAndFocusElement(id) {
+    window.requestAnimationFrame(() => {
+      const element = document.getElementById(id);
+      if (!element) return;
+      element.focus({ preventScroll: true });
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
   function scrollToNextHomeSection(index) {
     const next = homeSections[index + 1];
     if (next) scrollToElement(`home-section-${next.id}`);
@@ -1330,7 +1339,7 @@ function App() {
                     <button
                       className="section-icon-button"
                       type="button"
-                      onClick={() => scrollToElement(popularPairings.length > 0 && pairingRestaurant ? 'cart-popular-pairings-section' : 'cart-order-summary-section')}
+                      onClick={() => scrollToAndFocusElement(popularPairings.length > 0 && pairingRestaurant ? 'cart-popular-pairings-heading' : 'cart-order-summary-heading')}
                       aria-label={popularPairings.length > 0 && pairingRestaurant ? 'Skip to Popular pairings' : 'Skip to Order summary'}
                     >
                       <Icon name="arrowDown" />
@@ -1390,6 +1399,7 @@ function App() {
                       <div className="cart-heading-row cart-pairings-heading-row">
                         <div
                           className="cart-section-heading cart-heading-text"
+                          id="cart-popular-pairings-heading"
                           tabIndex={0}
                           aria-label={`Popular pairings. More from ${pairingRestaurant.name}.`}
                         >
@@ -1399,7 +1409,7 @@ function App() {
                         <button
                           className="section-icon-button"
                           type="button"
-                          onClick={() => scrollToElement('cart-order-summary-section')}
+                          onClick={() => scrollToAndFocusElement('cart-order-summary-heading')}
                           aria-label="Skip to Order summary"
                         >
                           <Icon name="arrowDown" />
@@ -1437,13 +1447,13 @@ function App() {
 
                   <div className="order-summary-card" id="cart-order-summary-section">
                     <div className="cart-heading-row order-summary-heading-row">
-                      <div className="cart-section-title cart-heading-text" tabIndex={0} aria-label="Order summary">
+                      <div className="cart-section-title cart-heading-text" id="cart-order-summary-heading" tabIndex={0} aria-label="Order summary">
                         <span aria-hidden="true">Order summary</span>
                       </div>
                       <button
                         className="section-icon-button"
                         type="button"
-                        onClick={() => scrollToElement('cart-checkout-button')}
+                        onClick={() => scrollToAndFocusElement('cart-checkout-button')}
                         aria-label="Skip to checkout"
                       >
                         <Icon name="arrowDown" />
