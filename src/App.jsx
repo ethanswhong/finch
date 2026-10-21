@@ -1335,14 +1335,18 @@ function App() {
                           className={`cart-item cart-item-focus-target ${active ? 'conversation-active-card' : ''}`}
                           key={item.id}
                           id={`cart-${item.id}`}
-                          tabIndex={0}
                           data-finch-target="menu"
-                          aria-label={`${item.name}. ${item.restaurantName}. ${item.price.toFixed(2)} dollars. Quantity ${item.quantity}.`}
-                          onFocus={selectItemContext}
                           onPointerDown={selectItemContext}
                         >
-                          <div className="cart-product-side" aria-hidden="true">
-                            <div className="cart-thumb-wrap">
+                          <div
+                            className="cart-product-side"
+                            role="group"
+                            tabIndex={0}
+                            aria-label={`${item.name}. Quantity ${item.quantity}. ${item.price.toFixed(2)} dollars.`}
+                            onFocus={selectItemContext}
+                            onPointerDown={selectItemContext}
+                          >
+                            <div className="cart-thumb-wrap" aria-hidden="true">
                               <img src={item.image} alt="" />
                               {active && isSpeaking && (
                                 <div className="context-character-overlay context-character-overlay-cart">
@@ -1350,7 +1354,7 @@ function App() {
                                 </div>
                               )}
                             </div>
-                            <div className="cart-item-copy">
+                            <div className="cart-item-copy" aria-hidden="true">
                               <strong>{item.name}</strong><span>{item.restaurantName}</span><span>${item.price.toFixed(2)}</span>
                             </div>
                           </div>
@@ -1380,21 +1384,29 @@ function App() {
                       </div>
                       <div className="pairings-scroller">
                         {popularPairings.map((item) => (
-                          <article className="pairing-card" key={item.id}>
-                            <div className="pairing-image-wrap">
-                              <img src={item.image} alt={item.imageAlt || ''} />
-                              <button
-                                type="button"
-                                className="pairing-add-button"
-                                aria-label={`Add ${item.name} to cart`}
-                                onClick={() => addItem(item.id, 1, { source: 'cart-popular-pairing' })}
-                              >+</button>
+                          <div
+                            className="pairing-card"
+                            key={item.id}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`${item.name}. ${item.price.toFixed(2)} dollars. Add to cart.`}
+                            onClick={() => addItem(item.id, 1, { source: 'cart-popular-pairing' })}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                addItem(item.id, 1, { source: 'cart-popular-pairing' });
+                              }
+                            }}
+                          >
+                            <div className="pairing-image-wrap" aria-hidden="true">
+                              <img src={item.image} alt="" />
+                              <span className="pairing-add-button">+</span>
                             </div>
-                            <div className="pairing-card-copy">
+                            <div className="pairing-card-copy" aria-hidden="true">
                               <strong>{item.name}</strong>
                               <span>${item.price.toFixed(2)}</span>
                             </div>
-                          </article>
+                          </div>
                         ))}
                       </div>
                     </section>
@@ -1402,17 +1414,30 @@ function App() {
 
                   <section className="order-summary-card" aria-labelledby="order-summary-title">
                     <h2 id="order-summary-title">Order summary</h2>
-                    <div className="summary-row"><span>Items subtotal</span><strong>${itemsSubtotal.toFixed(2)}</strong></div>
-                    <div className="summary-row">
-                      <span>Delivery fee</span>
-                      <strong className={deliveryFee === 0 ? 'summary-positive' : ''}>
+                    <div className="summary-row" role="group" tabIndex={0} aria-label={`Items subtotal. ${itemsSubtotal.toFixed(2)} dollars.`}>
+                      <span aria-hidden="true">Items subtotal</span><strong aria-hidden="true">${itemsSubtotal.toFixed(2)}</strong>
+                    </div>
+                    <div
+                      className="summary-row"
+                      role="group"
+                      tabIndex={0}
+                      aria-label={deliveryFee === 0 ? 'Delivery fee. Free. 0 dollars.' : `Delivery fee. ${deliveryFee.toFixed(2)} dollars.`}
+                    >
+                      <span aria-hidden="true">Delivery fee</span>
+                      <strong aria-hidden="true" className={deliveryFee === 0 ? 'summary-positive' : ''}>
                         {deliveryFee === 0 ? 'FREE · $0.00' : `$${deliveryFee.toFixed(2)}`}
                       </strong>
                     </div>
-                    <div className="summary-row"><span>Estimated taxes &amp; fees</span><strong>${estimatedTaxes.toFixed(2)}</strong></div>
-                    <div className="summary-row summary-discount"><span>Promotional discount</span><strong>−${promotionalDiscount.toFixed(2)}</strong></div>
-                    <div className="summary-divider" />
-                    <div className="summary-total"><span>Estimated Total</span><strong>${estimatedTotal.toFixed(2)}</strong></div>
+                    <div className="summary-row" role="group" tabIndex={0} aria-label={`Estimated taxes and fees. ${estimatedTaxes.toFixed(2)} dollars.`}>
+                      <span aria-hidden="true">Estimated taxes &amp; fees</span><strong aria-hidden="true">${estimatedTaxes.toFixed(2)}</strong>
+                    </div>
+                    <div className="summary-row summary-discount" role="group" tabIndex={0} aria-label={`Promotional discount. Minus ${promotionalDiscount.toFixed(2)} dollars.`}>
+                      <span aria-hidden="true">Promotional discount</span><strong aria-hidden="true">−${promotionalDiscount.toFixed(2)}</strong>
+                    </div>
+                    <div className="summary-divider" aria-hidden="true" />
+                    <div className="summary-total" role="group" tabIndex={0} aria-label={`Estimated total. ${estimatedTotal.toFixed(2)} dollars.`}>
+                      <span aria-hidden="true">Estimated Total</span><strong aria-hidden="true">${estimatedTotal.toFixed(2)}</strong>
+                    </div>
                     <p className="summary-note">Estimated checkout pricing for this prototype.</p>
                   </section>
 
