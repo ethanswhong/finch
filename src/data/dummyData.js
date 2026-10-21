@@ -265,6 +265,87 @@ const extraTemplates = {
   ]
 };
 
+
+// Additional category-specific menus used only to populate realistic restaurant choices.
+// Keeping these in the data layer avoids touching any navigation, Finch, cart, or accessibility logic.
+const burgerExpansionTemplates = [
+  item({key:'classic-smash',name:'Classic Smash Burger',price:14,image:REMOTE.burger,description:'Two smashed beef patties, American cheese, pickles, onions, house sauce.',ingredients:['beef patties','American cheese','pickles','onions','house sauce'],tags:['featured','high-protein','non-spicy','rich'],section:'Burgers',healthScore:4,expression:'bold',voiceLabel:'bold'}),
+  item({key:'bacon-double',name:'Bacon Double Cheeseburger',price:17,image:LOCAL.variant11,description:'Two beef patties, bacon, cheddar, lettuce, tomato, burger sauce.',ingredients:['beef patties','bacon','cheddar','lettuce','tomato','burger sauce'],tags:['featured','high-protein','non-spicy','rich'],section:'Burgers',healthScore:3}),
+  item({key:'mushroom-swiss',name:'Mushroom Swiss Burger',price:16,image:LOCAL.variant03,description:'Beef patty, sautéed mushrooms, Swiss cheese, caramelized onion.',ingredients:['beef patty','mushrooms','Swiss cheese','onion'],tags:['high-protein','non-spicy','rich'],section:'Burgers',healthScore:5}),
+  item({key:'spicy-chicken',name:'Spicy Chicken Burger',price:15,image:LOCAL.crispyChicken,description:'Crispy chicken, chili mayo, pickles, shredded lettuce.',ingredients:['chicken','chili mayo','pickles','lettuce','bun'],tags:['high-protein','spicy','crispy'],section:'Burgers',healthScore:4}),
+  item({key:'garden-burger',name:'Garden Veggie Burger',price:14,image:LOCAL.variant04,description:'Vegetable patty, avocado, lettuce, tomato, herb spread.',ingredients:['vegetable patty','avocado','lettuce','tomato','herb spread'],tags:['vegetarian','non-spicy','lighter'],section:'Burgers',healthScore:8}),
+  item({key:'fries',name:'Sea Salt Fries',price:6,image:LOCAL.friedApp,description:'Crisp fries finished with sea salt.',ingredients:['potato','sea salt'],tags:['vegan','vegetarian','non-spicy','shareable'],section:'Sides',healthScore:4}),
+  item({key:'onion-rings',name:'Crispy Onion Rings',price:7,image:LOCAL.mozzarella,description:'Beer-battered onion rings with smoky dipping sauce.',ingredients:['onion','batter','smoky sauce'],tags:['vegetarian','non-spicy','shareable'],section:'Sides',healthScore:3}),
+  item({key:'shake',name:'Vanilla Bean Shake',price:8,image:LOCAL.gelatoVanilla,description:'Vanilla ice cream blended with milk.',ingredients:['vanilla ice cream','milk'],tags:['vegetarian','non-spicy','dessert','sweet'],section:'Shakes',healthScore:3})
+];
+
+const thaiExpansionTemplates = [
+  item({key:'pad-thai',name:'Chicken Pad Thai',price:18,image:REMOTE.thai,description:'Rice noodles, chicken, egg, bean sprouts, peanuts, tamarind sauce.',ingredients:['rice noodles','chicken','egg','bean sprouts','peanuts','tamarind'],tags:['featured','high-protein','non-spicy'],section:'Noodles',healthScore:7}),
+  item({key:'pad-see-ew',name:'Vegetable Pad See Ew',price:17,image:LOCAL.variant08,description:'Wide rice noodles, broccoli, egg, vegetables, sweet soy.',ingredients:['rice noodles','broccoli','egg','vegetables','soy sauce'],tags:['featured','vegetarian','non-spicy'],section:'Noodles',healthScore:7}),
+  item({key:'drunken-noodles',name:'Spicy Drunken Noodles',price:18,image:LOCAL.variant07,description:'Wide noodles, basil, vegetables, chili, garlic.',ingredients:['rice noodles','basil','vegetables','chili','garlic'],tags:['vegetarian','spicy'],section:'Noodles',healthScore:7}),
+  item({key:'green-curry',name:'Green Curry',price:19,image:LOCAL.variant04,description:'Coconut green curry, chicken, eggplant, basil, jasmine rice.',ingredients:['coconut milk','green curry','chicken','eggplant','basil','rice'],tags:['high-protein','spicy','creamy'],section:'Curries',healthScore:7}),
+  item({key:'basil-chicken',name:'Thai Basil Chicken',price:19,image:LOCAL.variant06,description:'Minced chicken, Thai basil, chili, garlic, jasmine rice.',ingredients:['chicken','Thai basil','chili','garlic','rice'],tags:['high-protein','spicy'],section:'Rice Plates',healthScore:8}),
+  item({key:'tom-yum',name:'Tom Yum Soup',price:13,image:LOCAL.variant08,description:'Hot-and-sour lemongrass broth with mushrooms, tomato, and herbs.',ingredients:['lemongrass broth','mushrooms','tomato','lime','herbs'],tags:['vegan','vegetarian','spicy','lighter'],section:'Soups',healthScore:9}),
+  item({key:'papaya-salad',name:'Green Papaya Salad',price:12,image:REMOTE.salad,description:'Green papaya, tomato, green beans, lime, peanuts.',ingredients:['green papaya','tomato','green beans','lime','peanuts'],tags:['vegan','vegetarian','spicy','lighter'],section:'Starters',healthScore:9}),
+  item({key:'mango-rice',name:'Mango Sticky Rice',price:9,image:LOCAL.variant10,description:'Coconut sticky rice with ripe mango.',ingredients:['sticky rice','coconut milk','mango'],tags:['vegan','vegetarian','non-spicy','dessert','sweet'],section:'Dessert',healthScore:5})
+];
+
+const brunchExpansionTemplates = [
+  item({key:'pancakes',name:'Buttermilk Pancake Stack',price:14,image:LOCAL.variant09,description:'Fluffy buttermilk pancakes with maple syrup and whipped butter.',ingredients:['buttermilk pancakes','maple syrup','butter'],tags:['featured','vegetarian','non-spicy','sweet'],section:'Breakfast',healthScore:4,expression:'playful',voiceLabel:'bright'}),
+  item({key:'french-toast',name:'Brioche French Toast',price:15,image:LOCAL.garlicToast,description:'Thick brioche, cinnamon custard, berries, maple syrup.',ingredients:['brioche','egg','milk','cinnamon','berries','maple syrup'],tags:['featured','vegetarian','non-spicy','sweet'],section:'Breakfast',healthScore:5}),
+  item({key:'avocado-toast',name:'Avocado Egg Toast',price:14,image:LOCAL.variant04,description:'Sourdough, smashed avocado, two eggs, tomato, herbs.',ingredients:['sourdough','avocado','eggs','tomato','herbs'],tags:['vegetarian','high-protein','non-spicy','lighter'],section:'Breakfast',healthScore:9}),
+  item({key:'breakfast-burrito',name:'Breakfast Burrito',price:15,image:LOCAL.variant02,description:'Eggs, potatoes, cheddar, peppers, salsa in a warm tortilla.',ingredients:['eggs','potatoes','cheddar','peppers','salsa','tortilla'],tags:['vegetarian','non-spicy','comforting'],section:'Breakfast',healthScore:6}),
+  item({key:'egg-sandwich',name:'Egg & Cheddar Breakfast Sandwich',price:12,image:LOCAL.variant11,description:'Fried egg, cheddar, tomato, arugula, toasted brioche.',ingredients:['egg','cheddar','tomato','arugula','brioche'],tags:['vegetarian','high-protein','non-spicy'],section:'Sandwiches',healthScore:7}),
+  item({key:'berry-waffle',name:'Berry Belgian Waffle',price:14,image:LOCAL.variant10,description:'Belgian waffle with berries, powdered sugar, and maple syrup.',ingredients:['waffle','berries','powdered sugar','maple syrup'],tags:['vegetarian','non-spicy','sweet'],section:'Breakfast',healthScore:5}),
+  item({key:'parfait',name:'Greek Yogurt Parfait',price:9,image:LOCAL.gelato,description:'Greek yogurt, berries, granola, honey.',ingredients:['Greek yogurt','berries','granola','honey'],tags:['vegetarian','high-protein','non-spicy','lighter','sweet'],section:'Breakfast',healthScore:8}),
+  item({key:'latte',name:'Honey Oat Latte',price:6,image:REMOTE.coffee,description:'Espresso, oat milk, and a touch of honey.',ingredients:['espresso','oat milk','honey'],tags:['vegetarian','non-spicy'],section:'Coffee',healthScore:7}),
+  item({key:'cold-brew',name:'Cold Brew',price:5,image:LOCAL.gelatoVanilla,description:'Slow-steeped coffee served over ice.',ingredients:['coffee','water'],tags:['vegan','vegetarian','non-spicy','lighter'],section:'Coffee',healthScore:9})
+];
+
+const veganExpansionTemplates = [
+  item({key:'harvest-bowl',name:'Harvest Quinoa Bowl',price:16,image:REMOTE.salad,description:'Quinoa, roasted squash, kale, chickpeas, avocado, lemon tahini.',ingredients:['quinoa','squash','kale','chickpeas','avocado','tahini'],tags:['featured','vegan','vegetarian','high-protein','non-spicy','lighter'],section:'Bowls',healthScore:10,expression:'calm',voiceLabel:'calm'}),
+  item({key:'tofu-salad',name:'Crispy Tofu Crunch Salad',price:15,image:LOCAL.variant04,description:'Crispy tofu, cabbage, cucumber, carrot, greens, sesame-lime dressing.',ingredients:['tofu','cabbage','cucumber','carrot','greens','sesame'],tags:['featured','vegan','vegetarian','high-protein','non-spicy','lighter'],section:'Salads',healthScore:10}),
+  item({key:'lentil-bowl',name:'Warm Lentil Power Bowl',price:15,image:LOCAL.variant08,description:'Lentils, brown rice, roasted vegetables, herbs, tahini.',ingredients:['lentils','brown rice','vegetables','herbs','tahini'],tags:['vegan','vegetarian','high-protein','non-spicy'],section:'Bowls',healthScore:10}),
+  item({key:'kale-avocado',name:'Kale Avocado Salad',price:14,image:REMOTE.salad,description:'Kale, avocado, cucumber, tomato, pumpkin seeds, citrus dressing.',ingredients:['kale','avocado','cucumber','tomato','pumpkin seeds','citrus'],tags:['vegan','vegetarian','non-spicy','lighter'],section:'Salads',healthScore:10}),
+  item({key:'chickpea-wrap',name:'Roasted Chickpea Wrap',price:13,image:LOCAL.garlicBread,description:'Roasted chickpeas, greens, tomato, cucumber, hummus in a whole-wheat wrap.',ingredients:['chickpeas','greens','tomato','cucumber','hummus','wrap'],tags:['vegan','vegetarian','high-protein','non-spicy','lighter'],section:'Wraps',healthScore:9}),
+  item({key:'tomato-soup',name:'Tomato Basil Soup',price:10,image:LOCAL.variant08,description:'Slow-cooked tomato, basil, garlic, and vegetable broth.',ingredients:['tomato','basil','garlic','vegetable broth'],tags:['vegan','vegetarian','non-spicy','lighter'],section:'Soups',healthScore:9}),
+  item({key:'hummus',name:'Hummus & Vegetable Plate',price:11,image:LOCAL.variant04,description:'Hummus, cucumber, carrots, tomato, olives, warm pita.',ingredients:['hummus','cucumber','carrots','tomato','olives','pita'],tags:['vegan','vegetarian','non-spicy','shareable'],section:'Sides',healthScore:9}),
+  item({key:'chia',name:'Berry Chia Pudding',price:8,image:LOCAL.variant10,description:'Chia pudding with oat milk, berries, and maple.',ingredients:['chia seeds','oat milk','berries','maple'],tags:['vegan','vegetarian','non-spicy','dessert','sweet'],section:'Dessert',healthScore:8})
+];
+
+const koreanExpansionTemplates = [
+  item({key:'soy-garlic-chicken',name:'Soy Garlic Korean Fried Chicken',price:18,image:REMOTE.chicken,description:'Crispy chicken glazed with soy, garlic, and sesame.',ingredients:['chicken','soy sauce','garlic','sesame'],tags:['featured','high-protein','non-spicy','crispy'],section:'Korean Chicken',healthScore:5,expression:'bold',voiceLabel:'bold'}),
+  item({key:'spicy-chicken',name:'Spicy Korean Fried Chicken',price:18,image:LOCAL.crispyChicken,description:'Crispy chicken tossed in a sweet-spicy gochujang glaze.',ingredients:['chicken','gochujang','garlic','sesame'],tags:['featured','high-protein','spicy','crispy'],section:'Korean Chicken',healthScore:4}),
+  item({key:'bulgogi',name:'Beef Bulgogi Bowl',price:19,image:LOCAL.variant11,description:'Marinated beef, steamed rice, vegetables, scallions.',ingredients:['beef','rice','vegetables','scallions','soy marinade'],tags:['high-protein','non-spicy'],section:'Rice Bowls',healthScore:7}),
+  item({key:'bibimbap',name:'Vegetable Bibimbap',price:17,image:LOCAL.variant04,description:'Rice, seasoned vegetables, egg, sesame, gochujang on the side.',ingredients:['rice','vegetables','egg','sesame','gochujang'],tags:['vegetarian','non-spicy','lighter'],section:'Rice Bowls',healthScore:9}),
+  item({key:'japchae',name:'Japchae',price:16,image:REMOTE.noodles,description:'Sweet potato glass noodles, vegetables, mushrooms, sesame.',ingredients:['sweet potato noodles','vegetables','mushrooms','sesame'],tags:['vegan','vegetarian','non-spicy','lighter'],section:'Noodles',healthScore:8}),
+  item({key:'kimchi-jjigae',name:'Kimchi Jjigae',price:17,image:LOCAL.variant08,description:'Spicy kimchi stew with tofu, scallions, and rice.',ingredients:['kimchi','tofu','scallions','broth','rice'],tags:['spicy','comforting'],section:'Stews',healthScore:7}),
+  item({key:'tteokbokki',name:'Tteokbokki',price:13,image:LOCAL.variant07,description:'Chewy rice cakes in a sweet-spicy gochujang sauce.',ingredients:['rice cakes','gochujang','scallions'],tags:['vegetarian','spicy'],section:'Street Food',healthScore:5}),
+  item({key:'mandu',name:'Vegetable Mandu',price:10,image:LOCAL.friedApp,description:'Pan-seared dumplings filled with vegetables and tofu.',ingredients:['dumpling wrapper','vegetables','tofu'],tags:['vegetarian','non-spicy','shareable'],section:'Sides',healthScore:7})
+];
+
+const chineseExpansionTemplates = [
+  item({key:'kung-pao',name:'Kung Pao Chicken',price:18,image:LOCAL.variant06,description:'Chicken, peanuts, peppers, scallions, chili sauce.',ingredients:['chicken','peanuts','peppers','scallions','chili sauce'],tags:['featured','high-protein','spicy'],section:'Entrees',healthScore:7,expression:'bold',voiceLabel:'bold'}),
+  item({key:'mapo-tofu',name:'Mapo Tofu',price:17,image:LOCAL.variant07,description:'Silken tofu, chili bean sauce, scallions, Sichuan pepper.',ingredients:['tofu','chili bean sauce','scallions','Sichuan pepper'],tags:['featured','spicy','high-protein'],section:'Entrees',healthScore:7}),
+  item({key:'beef-broccoli',name:'Beef & Broccoli',price:19,image:LOCAL.variant11,description:'Sliced beef, broccoli, garlic, savory brown sauce.',ingredients:['beef','broccoli','garlic','brown sauce'],tags:['high-protein','non-spicy'],section:'Entrees',healthScore:8}),
+  item({key:'dan-dan',name:'Dan Dan Noodles',price:16,image:REMOTE.noodles,description:'Wheat noodles, sesame-chili sauce, preserved vegetables, scallions.',ingredients:['wheat noodles','sesame','chili','vegetables','scallions'],tags:['spicy','rich'],section:'Noodles',healthScore:6}),
+  item({key:'chow-mein',name:'Vegetable Chow Mein',price:15,image:REMOTE.noodles,description:'Stir-fried noodles, cabbage, carrots, mushrooms, scallions.',ingredients:['noodles','cabbage','carrots','mushrooms','scallions'],tags:['vegan','vegetarian','non-spicy'],section:'Noodles',healthScore:8}),
+  item({key:'dumplings',name:'Pork & Chive Dumplings',price:12,image:LOCAL.friedApp,description:'Pan-seared dumplings filled with pork and chives.',ingredients:['pork','chives','dumpling wrapper'],tags:['high-protein','non-spicy','shareable'],section:'Dumplings',healthScore:6}),
+  item({key:'scallion-pancake',name:'Scallion Pancake',price:8,image:LOCAL.garlicBread,description:'Crisp layered pancake with scallions and sesame dipping sauce.',ingredients:['flour','scallions','sesame'],tags:['vegan','vegetarian','non-spicy','shareable'],section:'Small Plates',healthScore:5}),
+  item({key:'hot-sour',name:'Hot & Sour Soup',price:9,image:LOCAL.variant08,description:'Peppery broth with tofu, mushrooms, bamboo shoots, and egg.',ingredients:['broth','tofu','mushrooms','bamboo shoots','egg'],tags:['vegetarian','spicy','lighter'],section:'Soups',healthScore:8})
+];
+
+const vietnameseExpansionTemplates = [
+  item({key:'beef-pho',name:'Classic Beef Pho',price:18,image:REMOTE.noodles,description:'Rice noodles, slow-simmered beef broth, sliced beef, herbs, lime.',ingredients:['rice noodles','beef broth','beef','herbs','lime'],tags:['featured','high-protein','non-spicy','comforting'],section:'Pho',healthScore:8,expression:'calm',voiceLabel:'warm'}),
+  item({key:'chicken-pho',name:'Chicken Pho',price:17,image:LOCAL.variant08,description:'Rice noodles, aromatic chicken broth, chicken, herbs, lime.',ingredients:['rice noodles','chicken broth','chicken','herbs','lime'],tags:['featured','high-protein','non-spicy','lighter'],section:'Pho',healthScore:9}),
+  item({key:'tofu-pho',name:'Tofu Vegetable Pho',price:16,image:LOCAL.variant04,description:'Rice noodles, vegetable broth, tofu, mushrooms, greens, herbs.',ingredients:['rice noodles','vegetable broth','tofu','mushrooms','greens','herbs'],tags:['vegan','vegetarian','high-protein','non-spicy','lighter'],section:'Pho',healthScore:10}),
+  item({key:'bun-bo-hue',name:'Bún Bò Huế',price:19,image:LOCAL.variant07,description:'Spicy lemongrass beef broth with rice noodles, beef, and herbs.',ingredients:['rice noodles','beef','lemongrass broth','chili','herbs'],tags:['high-protein','spicy','comforting'],section:'Noodle Soups',healthScore:7}),
+  item({key:'vermicelli',name:'Lemongrass Chicken Vermicelli',price:18,image:LOCAL.variant06,description:'Rice vermicelli, lemongrass chicken, lettuce, herbs, pickled vegetables.',ingredients:['rice vermicelli','chicken','lemongrass','lettuce','herbs','pickled vegetables'],tags:['high-protein','non-spicy','lighter'],section:'Vermicelli Bowls',healthScore:9}),
+  item({key:'pork-banh-mi',name:'Grilled Pork Bánh Mì',price:13,image:LOCAL.garlicBread,description:'Grilled pork, pickled carrot, cucumber, cilantro, jalapeño on a baguette.',ingredients:['pork','baguette','pickled carrot','cucumber','cilantro','jalapeño'],tags:['high-protein','spicy'],section:'Bánh Mì',healthScore:7}),
+  item({key:'spring-rolls',name:'Fresh Tofu Spring Rolls',price:10,image:LOCAL.variant04,description:'Rice paper, tofu, lettuce, herbs, vermicelli, peanut sauce.',ingredients:['rice paper','tofu','lettuce','herbs','vermicelli','peanut sauce'],tags:['vegan','vegetarian','non-spicy','lighter','shareable'],section:'Starters',healthScore:9}),
+  item({key:'viet-coffee',name:'Vietnamese Iced Coffee',price:6,image:REMOTE.coffee,description:'Strong coffee with condensed milk over ice.',ingredients:['coffee','condensed milk','ice'],tags:['vegetarian','non-spicy','sweet'],section:'Drinks',healthScore:4})
+];
+
 function restaurant({ id, name, section, categories, rating, reviews, distance, eta, feature, priceLevel, image, imageAlt, summary, character, menu, deals, reviewHighlight }) {
   return {
     id, name, section, categories, rating, reviews, distance, eta, feature, priceLevel, image, imageAlt, summary, character,
@@ -273,6 +354,189 @@ function restaurant({ id, name, section, categories, rating, reviews, distance, 
     reviewHighlight: reviewHighlight || `Customers frequently mention the food as flavorful, satisfying, and dependable for a casual meal.`
   };
 }
+
+
+const expandedRestaurantGroups = [
+  {
+    key:'pizza-neighborhood',
+    names:['Ember & Stone Pizza','Telegraph Pie Co.'],
+    categories:['Pizza','Fast Food'],
+    image:REMOTE.pizza,
+    imageAlt:'Freshly baked pizza with melted cheese and toppings.',
+    priceLevel:'$$',
+    feature:'Neighborhood pizza, crisp crusts, and familiar toppings',
+    summary:'A casual pizza spot with crisp crusts, classic pies, and a mix of hearty and vegetable-forward toppings.',
+    personality:'casual, upbeat, neighborhood pizza host',
+    intro:'I do crisp pizzas, familiar toppings, and easy shareable sides.',
+    menuTemplates:pizzaTemplates
+  },
+  {
+    key:'burger-house',
+    names:['The Smash Yard','Berkeley Burger Works','Bun & Board','Double Stack Kitchen','Griddle & Grain'],
+    categories:['Burgers','Fast Food'],
+    image:REMOTE.burger,
+    imageAlt:'Stacked burger with a toasted bun and fresh toppings.',
+    priceLevel:'$',
+    feature:'Smash burgers, chicken burgers, fries, and shakes',
+    summary:'A burger-focused spot with classic smash burgers, chicken and veggie options, crisp sides, and shakes.',
+    personality:'friendly, energetic, straightforward burger host',
+    intro:'I am all about burgers, fries, and easy comfort-food choices, with a veggie option when you want something lighter.',
+    menuTemplates:burgerExpansionTemplates
+  },
+  {
+    key:'mexican-kitchen',
+    names:['Casa Verde Taqueria','El Sol Tacos','Mission Mesa','Cactus & Lime'],
+    categories:['Mexican','Fast Food'],
+    image:REMOTE.tacos,
+    imageAlt:'Tacos topped with herbs, onion, salsa, and lime.',
+    priceLevel:'$',
+    feature:'Tacos, burritos, bowls, salsa, and shareable sides',
+    summary:'A lively Mexican kitchen centered on tacos, burritos, rice bowls, fresh salsa, and flexible protein choices.',
+    personality:'bright, lively, casual taqueria host',
+    intro:'I do tacos, burritos, bowls, bright salsa, and quick combinations you can customize around your craving.',
+    menuTemplates:mexicanTemplates
+  },
+  {
+    key:'thai-kitchen',
+    names:['Siam Garden','Lemongrass Lane','Bangkok Basil','Tamarind Table'],
+    categories:['Thai','Asian','Noodles','Soup'],
+    image:REMOTE.thai,
+    imageAlt:'Thai noodles with vegetables, herbs, and a savory sauce.',
+    priceLevel:'$$',
+    feature:'Thai noodles, curries, aromatic soups, and bright herbs',
+    summary:'A Thai kitchen serving wok-fried noodles, coconut curries, aromatic soups, and fresh herb-forward dishes.',
+    personality:'warm, aromatic, flexible Thai kitchen host',
+    intro:'I lean into fragrant herbs, noodles, curries, and soups, with both mild and spicy paths through the menu.',
+    menuTemplates:thaiExpansionTemplates
+  },
+  {
+    key:'brunch-cafe',
+    names:['Morning Bird Cafe','Maple & Egg','Sunday Table','Sunrise Pantry','Buttercup Brunch'],
+    categories:['Breakfast','Coffee','Sandwiches'],
+    image:REMOTE.coffee,
+    imageAlt:'Coffee beside a breakfast spread on a cafe table.',
+    priceLevel:'$$',
+    feature:'Pancakes, eggs, toast, breakfast sandwiches, and coffee',
+    summary:'A breakfast-and-coffee cafe with pancakes, French toast, egg dishes, breakfast sandwiches, and espresso drinks.',
+    personality:'sunny, relaxed, welcoming brunch host',
+    intro:'I am a real breakfast stop—pancakes, eggs, toast, breakfast sandwiches, waffles, and coffee.',
+    menuTemplates:brunchExpansionTemplates
+  },
+  {
+    key:'green-kitchen',
+    names:['Grove & Grain','Leaf & Lentil','Sprout Kitchen','Verdant Bowl','Garden Fork'],
+    categories:['Salad','Healthy','Vegan'],
+    image:REMOTE.salad,
+    imageAlt:'Fresh salad and grain bowl with greens, vegetables, and grains.',
+    priceLevel:'$$',
+    feature:'Vegan salads, grain bowls, wraps, and vegetable soups',
+    summary:'A fully plant-based kitchen built around salads, grain bowls, legumes, vegetables, wraps, and lighter soups.',
+    personality:'fresh, calm, thoughtful plant-based host',
+    intro:'Everything on my menu is plant-based, with salads, grain bowls, legumes, wraps, and vegetable-forward soups.',
+    menuTemplates:veganExpansionTemplates
+  },
+  {
+    key:'korean-kitchen',
+    names:['Seoul Bird','Han River Kitchen','Gochu House','Seoul Table','Miga Korean Kitchen'],
+    categories:['Korean','Asian','Chicken','Noodles'],
+    image:REMOTE.chicken,
+    imageAlt:'Crispy Korean-style chicken with a glossy savory glaze.',
+    priceLevel:'$$',
+    feature:'Korean fried chicken, bibimbap, bulgogi, noodles, and stews',
+    summary:'A Korean kitchen with soy-garlic and spicy fried chicken, rice bowls, noodles, street food, and comforting stews.',
+    personality:'bold, warm, lively Korean kitchen host',
+    intro:'I bring Korean fried chicken together with bibimbap, bulgogi, japchae, stews, and street-food favorites.',
+    menuTemplates:koreanExpansionTemplates
+  },
+  {
+    key:'chinese-kitchen',
+    names:['Red Lantern Kitchen','Jade Wok','Sichuan Garden','Golden Dumpling','Shanghai Table'],
+    categories:['Chinese','Asian','Noodles','Soup'],
+    image:REMOTE.noodles,
+    imageAlt:'Chinese noodles with vegetables and savory sauce.',
+    priceLevel:'$$',
+    feature:'Wok dishes, noodles, dumplings, and Chinese soups',
+    summary:'A Chinese kitchen with wok-fired classics, noodle dishes, dumplings, vegetable plates, and warming soups.',
+    personality:'confident, lively, practical Chinese kitchen host',
+    intro:'I cover wok classics, noodles, dumplings, and soups, with both mild comfort food and bolder chili-driven dishes.',
+    menuTemplates:chineseExpansionTemplates
+  },
+  {
+    key:'indian-kitchen',
+    names:['Masala House','Delhi Garden','Tandoor & Grain','Jaipur Kitchen'],
+    categories:['Indian','Halal'],
+    image:REMOTE.indian,
+    imageAlt:'Indian curry served with herbs and warm spices.',
+    priceLevel:'$$',
+    feature:'Halal Indian curries, biryani, tandoori dishes, and vegetarian classics',
+    summary:'A halal Indian kitchen with curries, biryani, grilled chicken, lentils, paneer, breads, and vegetarian options.',
+    personality:'warm, aromatic, generous Indian kitchen host',
+    intro:'I serve halal Indian comfort food—curries, biryani, grilled chicken, lentils, paneer, breads, and plenty of vegetarian choices.',
+    menuTemplates:indianTemplates
+  },
+  {
+    key:'vietnamese-pho',
+    names:['Pho House 510','Saigon Bowl','Lotus Pho & Grill','Hanoi Kitchen','Pho & Banh Mi'],
+    categories:['Vietnamese','Pho','Asian','Noodles','Soup'],
+    image:REMOTE.noodles,
+    imageAlt:'Vietnamese rice noodle soup with herbs and fresh garnishes.',
+    priceLevel:'$',
+    feature:'Pho, Vietnamese noodle soups, vermicelli bowls, and bánh mì',
+    summary:'A Vietnamese kitchen centered on pho and other noodle soups, plus vermicelli bowls, bánh mì, and fresh rolls.',
+    personality:'bright, comforting, herb-forward Vietnamese kitchen host',
+    intro:'Pho is at the center of my menu, alongside other noodle soups, vermicelli bowls, bánh mì, and fresh rolls.',
+    menuTemplates:vietnameseExpansionTemplates
+  },
+  {
+    key:'sushi-house',
+    names:['Kumo Sushi','Nori House','Mizu Sushi Bar','Sakura Roll Co.'],
+    categories:['Sushi','Asian','Healthy'],
+    image:REMOTE.sushi,
+    imageAlt:'Assorted sushi rolls and nigiri arranged on a plate.',
+    priceLevel:'$$$',
+    feature:'Sushi rolls, nigiri, rice bowls, and lighter sides',
+    summary:'A sushi restaurant with classic and spicy rolls, lighter vegetable options, rice bowls, and simple Japanese sides.',
+    personality:'precise, calm, refined sushi host',
+    intro:'I focus on clean sushi flavors, classic rolls, lighter vegetable choices, and a few comforting sides.',
+    menuTemplates:sushiTemplates
+  }
+];
+
+const expandedRestaurants = expandedRestaurantGroups.flatMap((group, groupIndex) =>
+  group.names.map((name, index) => {
+    const id = `${group.key}-${index + 1}`;
+    const rating = Number((4.4 + ((groupIndex + index) % 6) * 0.1).toFixed(1));
+    const reviewCount = 540 + ((groupIndex * 431 + index * 287) % 4100);
+    const distance = Number((0.6 + ((groupIndex * 2 + index) % 9) * 0.3).toFixed(1));
+    const etaStart = 15 + ((groupIndex + index * 2) % 14);
+    const section = index === 0 ? 'deals' : (index % 2 === 0 ? 'local' : 'national');
+
+    return restaurant({
+      id,
+      name,
+      section,
+      categories:group.categories,
+      rating,
+      reviews:reviewCount >= 1000 ? `${(reviewCount / 1000).toFixed(1)}k+` : String(reviewCount),
+      distance,
+      eta:`${etaStart}–${etaStart + 9} min`,
+      feature:group.feature,
+      priceLevel:group.priceLevel,
+      image:group.image,
+      imageAlt:group.imageAlt,
+      summary:group.summary,
+      character:{
+        personality:group.personality,
+        expression:index % 3 === 0 ? 'playful' : (index % 3 === 1 ? 'friendly' : 'calm'),
+        voiceLabel:index % 3 === 0 ? 'bright' : (index % 3 === 1 ? 'warm' : 'calm'),
+        intro:`Hi, I'm ${name}. ${group.intro}`
+      },
+      menu:makeMenu(id, group.menuTemplates),
+      deals:index === 0 ? [{title:'20% off select favorites',subtitle:'Limited-time offer · Eligible items',cta:'See items'}] : undefined,
+      reviewHighlight:`Customers often mention ${group.feature.toLowerCase()} as the reason they come back.`
+    });
+  })
+);
 
 export const restaurants = [
   restaurant({ id:'passione-emporio', name:'Passione Emporio', section:'local', categories:['Pizza','Italian'], rating:4.8, reviews:'2k+', distance:1.1, eta:'24–32 min', feature:'Artisanal Roman-style pizza', priceLevel:'$$', image:LOCAL.heroPizza, imageAlt:'A warm pizza scene inside an Italian restaurant.', summary:'A neighborhood Italian spot focused on Roman-style pizza, fresh toppings, and comforting pasta.', character:{ personality:'warm, expressive, Italian neighborhood host', expression:'friendly', voiceLabel:'warm', intro:"Ciao, I'm Passione Emporio. I'm the neighborhood Italian option here—Roman-style pizza, comforting pasta, and a menu that leans fresh rather than fast-food heavy." }, menu:makeMenu('passione',[...italianTemplates, ...extraTemplates.italian]), reviewHighlight:'Guests praise the blistered pizza crust, fresh toppings, creamy pastas, and the mix of lighter and indulgent options.' }),
@@ -284,7 +548,8 @@ export const restaurants = [
   restaurant({ id:'lotus-thai', name:'Lotus Thai Kitchen', section:'local', categories:['Thai','Asian','Noodles'], rating:4.8, reviews:'1.3k', distance:1.4, eta:'22–31 min', feature:'Fragrant curries and noodles', priceLevel:'$$', image:REMOTE.thai, imageAlt:'Thai noodle dish with herbs and vegetables.', summary:'A local Thai restaurant with aromatic curries, noodle dishes, and adjustable spice levels.', character:{ personality:'fragrant, welcoming, flexible', expression:'friendly', voiceLabel:'warm', intro:"I'm Lotus Thai Kitchen. I lean aromatic and flexible—curries, noodles, herbs, and spice levels you can tune to your mood." }, menu:makeMenu('lotus',[...asianTemplates, ...extraTemplates.asian]) }),
   restaurant({ id:'sora-sushi', name:'Sora Sushi', section:'local', categories:['Sushi','Asian','Healthy'], rating:4.7, reviews:'940', distance:2.1, eta:'28–36 min', feature:'Sushi rolls and sashimi', priceLevel:'$$$', image:REMOTE.sushi, imageAlt:'Assorted sushi rolls and nigiri on a plate.', summary:'A sushi restaurant with lighter rolls, sashimi, and cooked options.', character:{ personality:'precise, calm, refined', expression:'calm', voiceLabel:'calm', intro:"I'm Sora Sushi. I'm the precise, lighter option—clean flavors, smaller bites, and plenty of choices if you want something less heavy." }, menu:makeMenu('sora',[...sushiTemplates, ...extraTemplates.sushi]) }),
   restaurant({ id:'bombay-lane', name:'Bombay Lane', section:'local', categories:['Indian','Halal','Vegan'], rating:4.8, reviews:'2.4k', distance:1.6, eta:'27–35 min', feature:'Rich curries and vegetarian dishes', priceLevel:'$$', image:REMOTE.indian, imageAlt:'Indian curry in a bowl with herbs and spices.', summary:'An Indian restaurant with rich curries, vegetarian dishes, and warm spices.', character:{ personality:'warm, aromatic, generous', expression:'friendly', voiceLabel:'warm', intro:"I'm Bombay Lane. I'm warm, aromatic, and generous—curries, vegetarian dishes, and layered spices with plenty of comforting options." }, menu:makeMenu('bombay',[...indianTemplates, ...extraTemplates.indian]) }),
-  restaurant({ id:'night-owl-coffee', name:'Night Owl Coffee', section:'deals', categories:['Coffee','Dessert','Sandwiches'], rating:4.6, reviews:'610', distance:0.4, eta:'12–18 min', feature:'Coffee, pastries, and late-night snacks', priceLevel:'$', image:REMOTE.coffee, imageAlt:'Cup of coffee on a wooden table.', summary:'A nearby coffee shop with pastries, sandwiches, and late-night snacks.', character:{ personality:'gentle, witty, late-night companion', expression:'playful', voiceLabel:'bright', intro:"I'm Night Owl Coffee. I'm the nearby late-night companion—coffee, pastries, and small snacks when you want something easy rather than a full dinner." }, menu:makeMenu('nightowl',[...coffeeTemplates, ...extraTemplates.coffee]), deals:[{title:'Free pastry with 2 drinks',subtitle:'After 8 PM · Selected pastries',cta:'See items'}] })
+  restaurant({ id:'night-owl-coffee', name:'Night Owl Coffee', section:'deals', categories:['Coffee','Dessert','Sandwiches'], rating:4.6, reviews:'610', distance:0.4, eta:'12–18 min', feature:'Coffee, pastries, and late-night snacks', priceLevel:'$', image:REMOTE.coffee, imageAlt:'Cup of coffee on a wooden table.', summary:'A nearby coffee shop with pastries, sandwiches, and late-night snacks.', character:{ personality:'gentle, witty, late-night companion', expression:'playful', voiceLabel:'bright', intro:"I'm Night Owl Coffee. I'm the nearby late-night companion—coffee, pastries, and small snacks when you want something easy rather than a full dinner." }, menu:makeMenu('nightowl',[...coffeeTemplates, ...extraTemplates.coffee]), deals:[{title:'Free pastry with 2 drinks',subtitle:'After 8 PM · Selected pastries',cta:'See items'}] }),
+  ...expandedRestaurants
 ];
 
 export const homeSections = [
